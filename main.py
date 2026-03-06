@@ -1,23 +1,16 @@
 import tkinter as tk
 import sys
 import json
-import atexit
 from gui_app import BaccaratGUI
 from bot_logic import Bot
 from utils import logger
-from startup import initialize_environment, stop_ngrok
+from startup import initialize_environment
 
 def main():
     # ── Run Startup & Registration ──
     logger.log("Running startup registration...", "INFO")
-    ngrok_url = initialize_environment()
-    if ngrok_url:
-        logger.log(f"ngrok tunnel active: {ngrok_url}", "SUCCESS")
-    else:
-        logger.log("No ngrok tunnel (bot registered without it).", "INFO")
-
-    # Ensure ngrok is cleaned up on exit
-    atexit.register(stop_ngrok)
+    initialize_environment()
+    logger.log("Bot registered on Supabase.", "INFO")
 
     if "--headless" in sys.argv:
         logger.log("Starting in HEADLESS mode...", "INFO")
@@ -41,4 +34,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

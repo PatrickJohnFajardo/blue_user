@@ -1,7 +1,6 @@
 # startup.py - Baccarat Bot Startup & Registration
-# Handles: Machine GUID detection, ngrok tunnel, Supabase unit registration
+# Handles: Machine GUID detection, Supabase unit registration
 
-import subprocess
 import time
 import requests
 import winreg
@@ -9,7 +8,6 @@ import os
 import json
 
 CONFIG_FILE = "config.json"
-ngrok_process = None
 
 
 def get_machine_guid():
@@ -23,43 +21,6 @@ def get_machine_guid():
     except Exception as e:
         print(f"[startup] Failed to get Machine GUID: {e}")
         return ""
-
-
-def start_ngrok(port=8000):
-    """Start ngrok tunnel and return the public HTTPS URL."""
-    global ngrok_process
-
-    print("[startup] Starting ngrok...")
-    try:
-        ngrok_process = subprocess.Popen(
-            ["ngrok", "http", str(port)],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except FileNotFoundError:
-        print("[startup] ngrok not found. Skipping tunnel setup.")
-        return ""
-
-    time.sleep(3)
-
-    try:
-        response = requests.get("http://localhost:4040/api/tunnels")
-        if response.status_code == 200:
-            for tunnel in response.json().get("tunnels", []):
-                if tunnel.get("proto") == "https":
-                    return tunnel.get("public_url")
-    except Exception as e:
-        print(f"[startup] ngrok tunnel error: {e}")
-
-    return ""
-
-
-def stop_ngrok():
-    """Terminate the ngrok process."""
-    global ngrok_process
-    if ngrok_process:
-        ngrok_process.terminate()
-        print("[startup] ngrok stopped.")
 
 
 def load_config():
@@ -77,7 +38,7 @@ def save_config(config):
         json.dump(config, f, indent=2)
 
 
-def register_unit(guid, ngrok_url=""):
+def register_unit(guid):
     """Register or update this machine in the Supabase 'units' table."""
     config = load_config()
     sb = config.get("supabase", {})
@@ -107,10 +68,7 @@ def register_unit(guid, ngrok_url=""):
         print(f"[startup] Error checking existing unit: {e}")
         return
 
-    payload = {}
-    if ngrok_url:
-        payload["api_base_url"] = ngrok_url
-    payload["status"] = "connected"
+    payload = {"status": "connected"}
 
     # 2a. PATCH if existing row found
     if existing:
@@ -153,8 +111,7 @@ def initialize_environment():
     """
     Main startup routine:
     1. Detect machine GUID and store in config.json
-    2. Start ngrok tunnel (if available)
-    3. Register this machine in Supabase 'units' table
+    2. Register this machine in Supabase 'units' table
     """
     config = load_config()
     sb = config.get("supabase", {})
@@ -169,25 +126,17 @@ def initialize_environment():
             save_config(config)
             print("[startup] Updated hardware_id in config.json")
 
-    # 2. Start ngrok (optional)
-    ngrok_url = start_ngrok()
-    if ngrok_url:
-        print(f"[startup] ngrok URL: {ngrok_url}")
-
-    # 3. Register the unit in Supabase
+    # 2. Register the unit in Supabase
     if guid:
-        register_unit(guid, ngrok_url)
+        register_unit(guid)
 
-    return ngrok_url
+    return True
 
 
 if __name__ == "__main__":
     print("=" * 50)
     print("  Baccarat Bot - Startup & Registration")
     print("=" * 50)
-    url = initialize_environment()
-    if url:
-        print(f"\nBot is accessible at: {url}")
-    else:
-        print("\nBot registered (no ngrok tunnel).")
+    initialize_environment()
+    print("\nBot registered.")
     print("=" * 50)
