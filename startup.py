@@ -1,5 +1,5 @@
 # startup.py - Baccarat Bot Startup & Registration
-# Handles: Machine GUID detection, ngrok tunnel, Supabase bot registration
+# Handles: Machine GUID detection, ngrok tunnel, Supabase unit registration
 
 import subprocess
 import time
@@ -38,7 +38,6 @@ def start_ngrok(port=8000):
         )
     except FileNotFoundError:
         print("[startup] ngrok not found. Skipping tunnel setup.")
-        print("[startup] Install ngrok from https://ngrok.com/download")
         return ""
 
     time.sleep(3)
@@ -78,51 +77,84 @@ def save_config(config):
         json.dump(config, f, indent=2)
 
 
-def register_bot(pc_name, guid, ngrok_url=""):
-    """Register or update this bot in the Supabase `bot_monitoring` table."""
+def register_unit(guid, ngrok_url=""):
+    """Register or update this machine in the Supabase 'units' table."""
     config = load_config()
     sb = config.get("supabase", {})
     supabase_url = sb.get("url")
     supabase_key = sb.get("key")
 
     if not supabase_url or not supabase_key:
-        print("[startup] Supabase credentials not set — skipping registration.")
+        print("[startup] Supabase credentials not set — skipping unit registration.")
         return
 
     headers = {
         "apikey": supabase_key,
         "Authorization": f"Bearer {supabase_key}",
         "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates,return=representation",
     }
 
-    payload = {
-        "pc_name": pc_name,
-        "status": "Starting",
-    }
-
-    # Add ngrok URL if available
-    if ngrok_url:
-        payload["ngrok_url"] = ngrok_url
-
+    # 1. Check if a unit with this GUID already exists
     try:
-        url = f"{supabase_url}/rest/v1/bot_monitoring?on_conflict=pc_name"
-        response = requests.post(url, headers=headers, json=payload, timeout=5)
-
-        if response.status_code in (200, 201):
-            print(f"[startup] Bot registered in Supabase (pc_name={pc_name}).")
-        else:
-            print(f"[startup] Supabase registration failed [{response.status_code}]: {response.text}")
+        resp = requests.get(
+            f"{supabase_url}/rest/v1/units",
+            params={"guid": f"eq.{guid}", "select": "id,unit_name"},
+            headers=headers,
+            timeout=5,
+        )
+        existing = resp.json() if resp.status_code == 200 else []
     except Exception as e:
-        print(f"[startup] Error registering bot: {e}")
+        print(f"[startup] Error checking existing unit: {e}")
+        return
+
+    payload = {}
+    if ngrok_url:
+        payload["api_base_url"] = ngrok_url
+    payload["status"] = "connected"
+
+    # 2a. PATCH if existing row found
+    if existing:
+        unit_id = existing[0]["id"]
+        unit_name = existing[0].get("unit_name", "Unknown")
+        try:
+            resp = requests.patch(
+                f"{supabase_url}/rest/v1/units",
+                params={"id": f"eq.{unit_id}"},
+                json=payload,
+                headers={**headers, "Prefer": "return=representation"},
+                timeout=5,
+            )
+            if resp.status_code in (200, 204):
+                print(f"[startup] Unit updated: {unit_name} (id={unit_id})")
+            else:
+                print(f"[startup] Unit update failed [{resp.status_code}]: {resp.text}")
+        except Exception as e:
+            print(f"[startup] Error updating unit: {e}")
+
+    # 2b. POST if no existing row
+    else:
+        try:
+            resp = requests.post(
+                f"{supabase_url}/rest/v1/units",
+                json={**payload, "guid": guid},
+                headers={**headers, "Prefer": "return=representation"},
+                timeout=5,
+            )
+            if resp.status_code in (200, 201):
+                new_unit = resp.json()[0] if resp.json() else {}
+                print(f"[startup] New unit registered (id={new_unit.get('id', '?')})")
+            else:
+                print(f"[startup] Unit registration failed [{resp.status_code}]: {resp.text}")
+        except Exception as e:
+            print(f"[startup] Error registering unit: {e}")
 
 
 def initialize_environment():
     """
     Main startup routine:
-    1. Detect machine GUID and store it in config.json
+    1. Detect machine GUID and store in config.json
     2. Start ngrok tunnel (if available)
-    3. Register this bot in Supabase
+    3. Register this machine in Supabase 'units' table
     """
     config = load_config()
     sb = config.get("supabase", {})
@@ -137,14 +169,14 @@ def initialize_environment():
             save_config(config)
             print("[startup] Updated hardware_id in config.json")
 
-    # 2. Start ngrok (optional - won't block if ngrok isn't installed)
+    # 2. Start ngrok (optional)
     ngrok_url = start_ngrok()
     if ngrok_url:
         print(f"[startup] ngrok URL: {ngrok_url}")
 
-    # 3. Register the bot in Supabase
-    pc_name = sb.get("pc_name", "Unknown-PC")
-    register_bot(pc_name, guid, ngrok_url)
+    # 3. Register the unit in Supabase
+    if guid:
+        register_unit(guid, ngrok_url)
 
     return ngrok_url
 

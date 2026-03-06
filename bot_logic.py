@@ -17,6 +17,10 @@ pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tessera
 pyautogui.PAUSE = 0.02 # Minimal delay between actions
 pyautogui.FAILSAFE = True
 
+# Strategy name mapping: DB uses lowercase enums, bot uses capitalized internally
+STRATEGY_DB_TO_BOT = {"standard": "Standard", "tank": "Tank", "sweeper": "Sweeper", "burst": "Burst"}
+STRATEGY_BOT_TO_DB = {v: k for k, v in STRATEGY_DB_TO_BOT.items()}
+
 class Bot:
     def __init__(self, config_file='config.json', pattern_string='B', base_bet=10, reset_on_cycle=True, target_percentage=None, max_level=10, strategy="Standard", on_settings_sync=None):
         self.config_file = config_file
@@ -62,10 +66,10 @@ class Bot:
         self.sb_config = self.config.get('supabase', {})
         self.martingale_level = 0
         
-        # Handle Automatic PC Naming
-        self.handle_pc_naming()
+        # Handle Bot Identity (find or create bot row in DB)
+        self.handle_bot_identity()
         
-        if self.sb_url and self.sb_key:
+        if self.sb_url and self.sb_key and self.bot_id:
             self.push_monitoring_update(status="Starting")
             
     def load_config(self):
@@ -83,80 +87,120 @@ class Bot:
         except Exception as e:
             logger.log(f"Failed to save config: {e}", "ERROR")
 
-    def handle_pc_naming(self):
-        """Automatically detects new computers and assigns a sequential name (PC-1, PC-2, etc.)"""
+    def handle_bot_identity(self):
+        """Finds or creates a bot row in the Supabase 'bot' table."""
         self.sb_config = self.config.get('supabase', {})
-        self.pc_name = self.sb_config.get('pc_name', 'Unknown-PC')
+        self.bot_id = self.sb_config.get('bot_id', '')
         self.sb_url = self.sb_config.get('url')
         self.sb_key = self.sb_config.get('key')
         
-        current_hwid = get_hwid()
-        stored_hwid = self.sb_config.get('hardware_id')
-        
-        # If hardware matches and we already have a assigned name, we are good
-        if stored_hwid == current_hwid and self.pc_name not in ["Unknown-PC", "PC-NEW"]:
-            logger.log(f"Hardware recognized: {self.pc_name}", "INFO")
-            return
-
-        # If we reach here, it's either a new computer, or the first time this logic runs
-        logger.log("New computer or uninitialized PC detected. Checking available names...", "INFO")
-        
         if not self.sb_url or not self.sb_key:
-            logger.log("Supabase credentials missing, skipping auto-naming.", "DEBUG")
-            return
-
-        # Get existing PC names from Supabase to find the next available index
-        try:
-            url = f"{self.sb_url}/rest/v1/bot_monitoring?select=pc_name"
-            headers = {
-                "apikey": self.sb_key,
-                "Authorization": f"Bearer {self.sb_key}"
-            }
-            response = requests.get(url, headers=headers, timeout=5)
-            if response.status_code == 200:
-                existing_names = [item['pc_name'] for item in response.json()]
-                
-                # Find the next available index for "PC-X" pattern
-                max_idx = 0
-                import re
-                for name in existing_names:
-                    match = re.match(r'PC-(\d+)', name)
-                    if match:
-                        idx = int(match.group(1))
-                        if idx > max_idx:
-                            max_idx = idx
-                
-                new_idx = max_idx + 1
-                self.pc_name = f"PC-{new_idx}"
-                logger.log(f"Detected new computer. Assigned name: {self.pc_name}", "SUCCESS")
-                
-                # Update config and save
-                if 'supabase' not in self.config:
-                    self.config['supabase'] = {}
-                self.config['supabase']['pc_name'] = self.pc_name
-                self.config['supabase']['hardware_id'] = current_hwid
-                self.save_config()
-            else:
-                # Fallback if query fails
-                if self.pc_name in ["Unknown-PC", "PC-NEW"]:
-                    import random
-                    self.pc_name = f"PC-{random.randint(100, 999)}"
-                    logger.log(f"Could not reach Supabase. Assigned temporary name: {self.pc_name}", "WARNING")
-        except Exception as e:
-            logger.log(f"Auto-naming error: {e}", "DEBUG")
-            if self.pc_name in ["Unknown-PC", "PC-NEW"]:
-                import random
-                self.pc_name = f"PC-{random.randint(100, 999)}"
-
-    def push_monitoring_update(self, status=None):
-        if not self.sb_url or not self.sb_key or "YOUR_SUPABASE_KEY" in self.sb_key:
+            logger.log("Supabase credentials missing.", "DEBUG")
             return
 
         headers = {
             "apikey": self.sb_key,
             "Authorization": f"Bearer {self.sb_key}",
             "Content-Type": "application/json",
-            "Prefer": "resolution=merge-duplicates,return=representation"
+        }
+        
+        # 1. If we already have a bot_id, verify it exists
+        if self.bot_id:
+            try:
+                url = f"{self.sb_url}/rest/v1/bot?id=eq.{self.bot_id}&select=id"
+                resp = requests.get(url, headers=headers, timeout=5)
+                if resp.status_code == 200 and resp.json():
+                    logger.log(f"Bot identity confirmed: {self.bot_id}", "INFO")
+                    return
+                else:
+                    logger.log(f"Bot ID {self.bot_id} not found in DB. Creating new one...", "WARNING")
+                    self.bot_id = ''
+            except Exception as e:
+                logger.log(f"Bot ID verification error: {e}", "DEBUG")
+                return
+
+        # 2. Try to find via GUID → unit → user → bot chain
+        current_hwid = get_hwid()
+        try:
+            # Look up unit by GUID
+            url = f"{self.sb_url}/rest/v1/units?guid=eq.{current_hwid}&select=id"
+            resp = requests.get(url, headers=headers, timeout=5)
+            unit_id = None
+            user_id = None
+            
+            if resp.status_code == 200 and resp.json():
+                unit_id = resp.json()[0]['id']
+                logger.log(f"Found unit for this machine: {unit_id}", "INFO")
+                
+                # Look up user_account by unit_id
+                url = f"{self.sb_url}/rest/v1/user_account?unit_id=eq.{unit_id}&select=id"
+                resp = requests.get(url, headers=headers, timeout=5)
+                if resp.status_code == 200 and resp.json():
+                    user_id = resp.json()[0]['id']
+                    logger.log(f"Found user for this unit: {user_id}", "INFO")
+                    
+                    # Check if a bot already exists for this user
+                    url = f"{self.sb_url}/rest/v1/bot?user_id=eq.{user_id}&select=id"
+                    resp = requests.get(url, headers=headers, timeout=5)
+                    if resp.status_code == 200 and resp.json():
+                        self.bot_id = resp.json()[0]['id']
+                        logger.log(f"Found existing bot: {self.bot_id}", "SUCCESS")
+                        self._save_bot_id()
+                        return
+        except Exception as e:
+            logger.log(f"GUID chain lookup error: {e}", "DEBUG")
+
+        # 3. No bot found — create one
+        try:
+            payload = {
+                "status": "Starting",
+                "bet": self.base_bet,
+                "pattern": self.pattern if self.pattern in ['P', 'B', 'PB', 'BP', 'PPPB', 'BBBP'] else 'B',
+                "level": self.max_level,
+                "target_profit": self.target_percentage or 10.0,
+                "command": False,
+                "duration": 60,
+                "strategy": STRATEGY_BOT_TO_DB.get(self.strategy, "standard"),
+                "bot_status": "stop",
+                "balance": 0,
+            }
+            # Link to user if we found one
+            if user_id:
+                payload["user_id"] = user_id
+                
+            url = f"{self.sb_url}/rest/v1/bot"
+            resp = requests.post(
+                url,
+                headers={**headers, "Prefer": "return=representation"},
+                json=payload,
+                timeout=5
+            )
+            if resp.status_code in (200, 201) and resp.json():
+                self.bot_id = resp.json()[0]['id']
+                logger.log(f"Created new bot in DB: {self.bot_id}", "SUCCESS")
+                self._save_bot_id()
+            else:
+                logger.log(f"Failed to create bot: {resp.status_code} {resp.text}", "ERROR")
+        except Exception as e:
+            logger.log(f"Bot creation error: {e}", "ERROR")
+
+    def _save_bot_id(self):
+        """Persist bot_id to config.json."""
+        if 'supabase' not in self.config:
+            self.config['supabase'] = {}
+        self.config['supabase']['bot_id'] = self.bot_id
+        self.config['supabase']['hardware_id'] = get_hwid()
+        self.save_config()
+
+    def push_monitoring_update(self, status=None):
+        if not self.sb_url or not self.sb_key or not self.bot_id:
+            return
+
+        headers = {
+            "apikey": self.sb_key,
+            "Authorization": f"Bearer {self.sb_key}",
+            "Content-Type": "application/json",
+            "Prefer": "return=representation",
         }
         
         balance = self.get_current_balance()
@@ -168,25 +212,20 @@ class Bot:
         else:
             effective_status = "Running" if self.running else "Stopped"
         
-        elapsed_seconds = int(time.time() - self.start_time)
-        
-        # Mapping to your Supabase 'bot_monitoring' schema
-        # We only push status information to avoid overwriting settings set via the website
+        # Only push status and balance — don't overwrite settings from the website
         payload = {
-            "pc_name": self.pc_name,
             "status": effective_status,
-            "balance": balance if balance is not None else 0
+            "balance": balance if balance is not None else 0,
         }
 
         try:
-            # Use on_conflict query parameter for upsert
-            url = f"{self.sb_url}/rest/v1/bot_monitoring?on_conflict=pc_name"
-            
-            response = requests.post(url, headers=headers, json=payload, timeout=5)
+            # PATCH the bot row by id
+            url = f"{self.sb_url}/rest/v1/bot?id=eq.{self.bot_id}"
+            response = requests.patch(url, headers=headers, json=payload, timeout=5)
             self.last_sync_time = time.time()
             
-            if response.status_code in [200, 201]:
-                data = response.json()
+            if response.status_code in [200, 204]:
+                data = response.json() if response.text else []
                 if data and len(data) > 0:
                     self.sync_remote_settings(data[0])
             else:
@@ -201,7 +240,7 @@ class Bot:
 
     def push_play_history(self, start_bal, end_bal, level, bet_size):
         """Logs the outcome to 'play_history' table."""
-        if not self.sb_url or not self.sb_key:
+        if not self.sb_url or not self.sb_key or not self.bot_id:
             return
 
         headers = {
@@ -210,12 +249,16 @@ class Bot:
             "Content-Type": "application/json"
         }
 
+        s_bal = start_bal if start_bal is not None else 0
+        e_bal = end_bal if end_bal is not None else 0
+        pnl = e_bal - s_bal
+
         payload = {
-            "pc_name": self.pc_name,
-            "start_balance": start_bal if start_bal is not None else 0,
-            "end_balance": end_bal if end_bal is not None else 0, # Removed int() casting for decimal reporting
-            "level": level,
-            "bet_size": int(bet_size)
+            "bot_id": self.bot_id,
+            "start_balance": s_bal,
+            "end_balance": e_bal,
+            "level": str(level),
+            "pnl": pnl,
         }
 
         try:
@@ -227,11 +270,9 @@ class Bot:
     def apply_constraints(self):
         """Enforces safety rules defined by the system/UI."""
         # 1. Bet Size vs Max Level Mapping
-        # 10 -> 14, 50 -> 12, 100 -> 11, 200 -> 10
         bet_limits = {200: 10, 100: 11, 50: 12, 10: 14}
         
-        # Determine strict limit based on base_bet
-        strict_limit = 14 # Default safe maximum
+        strict_limit = 14
         for trigger_bet, limit in sorted(bet_limits.items(), reverse=True):
             if self.base_bet >= trigger_bet:
                 strict_limit = limit
@@ -242,7 +283,6 @@ class Bot:
             self.max_level = strict_limit
 
         # 2. Level vs Strategy Constraints
-        # Sweeper/Burst only work on low levels (< 4)
         if self.max_level >= 4 and self.strategy in ["Sweeper", "Burst"]:
             logger.log(f"Strategy {self.strategy} is not allowed for Level {self.max_level}. Reverting to Standard.", "WARNING")
             self.strategy = "Standard"
@@ -259,7 +299,7 @@ class Bot:
         new_bet = remote_data.get('bet')
         if new_bet is not None:
             new_bet = int(new_bet)
-            if new_bet < 10: # Min Bet Guard
+            if new_bet < 10:
                 new_bet = 10
             
             if new_bet != self.base_bet:
@@ -267,12 +307,14 @@ class Bot:
                 self.current_bet = self.base_bet
                 self.martingale_level = 1
 
-        # 3. Strategy Sync
-        new_strategy = remote_data.get('strategy')
-        if new_strategy and new_strategy in self.strategies and new_strategy != self.strategy:
-            self.strategy = new_strategy
+        # 3. Strategy Sync (DB stores lowercase: standard, sweeper, etc.)
+        new_strategy_db = remote_data.get('strategy')
+        if new_strategy_db:
+            new_strategy = STRATEGY_DB_TO_BOT.get(new_strategy_db, new_strategy_db)
+            if new_strategy in self.strategies and new_strategy != self.strategy:
+                self.strategy = new_strategy
 
-        # 4. Max Level Sync (Read from 'level' column)
+        # 4. Max Level Sync
         new_max_level = remote_data.get('level')
         if new_max_level is not None:
             try:
@@ -285,38 +327,47 @@ class Bot:
 
         # 5. Target Profit Sync
         new_profit_pct = remote_data.get('target_profit')
-        if new_profit_pct is not None and float(new_profit_pct) != self.target_percentage:
-            self.target_percentage = float(new_profit_pct)
-            if self.starting_balance:
-                self.target_balance = self.starting_balance + (self.target_percentage / 100 * self.starting_balance)
+        if new_profit_pct is not None:
+            try:
+                pct = float(new_profit_pct)
+                if pct != self.target_percentage:
+                    self.target_percentage = pct
+                    if self.starting_balance:
+                        self.target_balance = self.starting_balance + (self.target_percentage / 100 * self.starting_balance)
+            except (ValueError, TypeError):
+                pass
 
-        # 5. Duration Limit Sync (Target minutes from DB)
+        # 6. Duration Limit Sync (minutes from DB)
         raw_duration = remote_data.get('duration')
-        # Treat None, empty string, or 0 as "Unlimited"
         if raw_duration in [None, "", 0, "0"]:
             self.target_duration = 0
         else:
             try:
                 self.target_duration = int(raw_duration) * 60
             except ValueError:
-                self.target_duration = 0 # Safety fallback
+                self.target_duration = 0
 
-        # 6. Command Sync
-        remote_cmd = remote_data.get('command')
-        if isinstance(remote_cmd, bool):
-            should_run = remote_cmd
+        # 7. Bot Status Sync (enum: 'run' or 'stop')
+        bot_status = remote_data.get('bot_status')
+        if bot_status:
+            should_run = (bot_status == 'run')
         else:
-            should_run = str(remote_cmd).lower() in ['true', 'start', 'run', '1']
+            # Fallback to command field
+            remote_cmd = remote_data.get('command')
+            if isinstance(remote_cmd, bool):
+                should_run = remote_cmd
+            else:
+                should_run = str(remote_cmd).lower() in ['true', 'start', 'run', '1']
                 
         if not should_run and self.running:
             self.running = False
             logger.log("Stopping bot (Remote Command)...", "INFO")
         elif should_run and not self.running:
-            self.start_time = time.time() # Reset clock on session start
+            self.start_time = time.time()
             self.running = True
             logger.log("Starting bot (Remote Command)...", "INFO")
 
-        # 7. Final validation of synced cross-settings
+        # 8. Final validation
         self.apply_constraints()
 
         # Notify UI if callback exists
@@ -336,7 +387,6 @@ class Bot:
             avg_color = np_img.mean(axis=(0, 1))
             r, g, b = avg_color
             
-            # Robust Check: distinctly green OR OCR match
             is_green = (g > r + 15) and (g > b + 15) and (g > 70)
             
             text = pytesseract.image_to_string(img.convert('L').point(lambda p: p > 150 and 255)).strip().lower()
@@ -365,7 +415,6 @@ class Bot:
         return None
 
     def wait_for_result_to_clear(self):
-        # Human-like delay: Random 3-5 seconds to let the result settle
         delay = random.uniform(3.0, 5.0)
         time.sleep(delay)
         return True
@@ -409,7 +458,7 @@ class Bot:
         elif self.last_end_balance is not None:
             self.current_bet_start_balance = self.last_end_balance
             
-        # Humanized pre-bet delay: Ensure window is open and looks natural
+        # Humanized pre-bet delay
         time.sleep(random.uniform(0.8, 1.5))
         
         target_key = 'target_a' if target_char == 'B' else 'target_b'
@@ -419,20 +468,16 @@ class Bot:
         for chip_val, count in chips_to_click.items():
             chip_config = self.config['chips'].get(str(chip_val))
             if chip_config:
-                # Randomize chip click coordinates (±3 pixels)
                 chip_x = chip_config['x'] + random.randint(-3, 3)
                 chip_y = chip_config['y'] + random.randint(-3, 3)
-                # Randomize movement speed (0.1s to 0.3s)
                 move_dur = random.uniform(0.1, 0.3)
                 
                 pyautogui.click(chip_x, chip_y, duration=move_dur)
                 time.sleep(random.uniform(0.05, 0.15))
                 
-                # Randomize target click coordinates (±5 pixels)
                 target_x = target['x'] + random.randint(-5, 5)
                 target_y = target['y'] + random.randint(-5, 5)
                 
-                # For multiple clicks, add slight intervals
                 for _ in range(count):
                     pyautogui.click(x=target_x, y=target_y, duration=random.uniform(0.05, 0.1))
                     time.sleep(random.uniform(0.02, 0.08))
@@ -443,7 +488,7 @@ class Bot:
 
     def execute_test_bet(self):
         """Standard $10 bet on Banker for physical testing."""
-        target = self.config['target_a'] # Banker
+        target = self.config['target_a']
         chip_10 = self.config['chips'].get('10')
         if not chip_10:
             logger.log("Cannot test clicks: Chip 10 not calibrated.", "ERROR")
@@ -451,14 +496,12 @@ class Bot:
             
         logger.log("Testing humanized clicks: Chip 10 -> Banker", "INFO")
         
-        # Randomize chip click
         cx = chip_10['x'] + random.randint(-3, 3)
         cy = chip_10['y'] + random.randint(-3, 3)
         pyautogui.click(cx, cy, duration=random.uniform(0.15, 0.35))
         
         time.sleep(random.uniform(0.1, 0.3))
         
-        # Randomize target click
         tx = target['x'] + random.randint(-5, 5)
         ty = target['y'] + random.randint(-5, 5)
         pyautogui.click(tx, ty, duration=random.uniform(0.15, 0.35))
@@ -471,7 +514,7 @@ class Bot:
         
         elapsed_seconds = time.time() - self.start_time
 
-        # 1. CHECK DURATION LIMIT (Whichever comes first skip/stop)
+        # 1. CHECK DURATION LIMIT
         if self.target_duration > 0 and elapsed_seconds >= self.target_duration:
             logger.log(f"SESSION STOP: Time limit of {int(self.target_duration / 60)}m reached.", "WARNING")
             self.running = False
@@ -524,7 +567,7 @@ class Bot:
                 self.current_bet = self.base_bet
                 self.martingale_level = 0
                 self.pattern_index = 0
-                self.last_result = "SIGHTED" # Custom state to mark baseline is done
+                self.last_result = "SIGHTED"
                 self.last_end_balance = self.get_current_balance()
                 self.execute_bet(self.pattern[self.pattern_index])
                 return
@@ -536,10 +579,8 @@ class Bot:
                 self.pattern_index = (self.pattern_index + 1) % len(self.pattern)
             elif actual_result == "PUSH":
                 logger.log("Tie detected: Keeping same pattern index for next bet.", "INFO")
-                # pattern_index is NOT incremented, so the next bet is on the same side.
             elif actual_result == "LOSS":
                 # Smart Banker Multiplier Override (2.11x)
-                # Only apply if currently betting on Banker AND the pattern contains consecutive Bankers (e.g. "BB")
                 current_target_char = self.pattern[self.pattern_index]
                 has_consecutive_bankers = "BB" in self.pattern
                 
@@ -563,32 +604,26 @@ class Bot:
 
             self.last_result = actual_result
             
-            # Capture end balance AFTER result clears (payout has settled)
             end_bal = self.get_current_balance()
-            
-            # Use the balance from BEFORE the bet for the start of history
             history_start = self.current_bet_start_balance if self.current_bet_start_balance is not None else self.last_end_balance
             
             if actual_result != "PUSH":
                 self.push_play_history(history_start, end_bal, prev_level, prev_bet)
                 
             self.last_end_balance = end_bal
-            # Important: Reset round start balance after logging
             self.current_bet_start_balance = None 
 
             self.execute_bet(self.pattern[self.pattern_index])
-            # Post-bet idle delay
             time.sleep(random.uniform(1.5, 3.0))
         else:
             if time.time() - self.last_sync_time > 5:
                 self.push_monitoring_update()
-            time.sleep(0.2) # Increased polling frequency (from 1s to 0.2s)
+            time.sleep(0.2)
 
     def start(self):
         self.running = True
         self.start_time = time.time()
         
-        # Initial balance capture
         self.last_end_balance = self.get_current_balance()
         
         logger.log("Bot session active. Listening for commands...", "INFO")
@@ -597,7 +632,6 @@ class Bot:
                 if self.running:
                     self.run_cycle()
                 else:
-                    # Idle loop: check for remote commands periodically
                     if time.time() - self.last_sync_time > 5:
                         self.push_monitoring_update()
                     time.sleep(1)

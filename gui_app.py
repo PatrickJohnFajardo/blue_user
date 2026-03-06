@@ -274,12 +274,19 @@ class BaccaratGUI:
         
         def update():
             for key, label in self.remote_labels.items():
-                val = remote_data.get(key)
                 if key == 'command':
-                    status = "RUNNING" if str(val).lower() in ['true', 'start', 'run', '1'] else "STOPPED"
+                    # Use bot_status (run/stop) if available, fallback to command
+                    bot_status = remote_data.get('bot_status')
+                    if bot_status:
+                        status = "RUNNING" if bot_status == 'run' else "STOPPED"
+                    else:
+                        val = remote_data.get('command')
+                        status = "RUNNING" if str(val).lower() in ['true', 'start', 'run', '1'] else "STOPPED"
                     label.config(text=status)
-                elif val is not None:
-                    label.config(text=str(val))
+                else:
+                    val = remote_data.get(key)
+                    if val is not None:
+                        label.config(text=str(val))
                     
         self.root.after(0, update)
 

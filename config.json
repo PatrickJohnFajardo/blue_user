@@ -2,29 +2,17 @@
   "target_a": {
     "x": 1163,
     "y": 1000,
-    "color": [
-      152,
-      5,
-      20
-    ]
+    "color": [152, 5, 20]
   },
   "target_b": {
     "x": 756,
     "y": 999,
-    "color": [
-      16,
-      59,
-      137
-    ]
+    "color": [16, 59, 137]
   },
   "target_c": {
     "x": 967,
     "y": 999,
-    "color": [
-      19,
-      119,
-      37
-    ]
+    "color": [19, 119, 37]
   },
   "status_region_main": {
     "x": 858,
@@ -79,9 +67,9 @@
     }
   },
   "supabase": {
-    "url": "https://kuayswrsszqlojgopqll.supabase.co",
-    "key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt1YXlzd3Jzc3pxbG9qZ29wcWxsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA3MDU3MjEsImV4cCI6MjA4NjI4MTcyMX0.f0ocTcbzFlYBbjT-CWri_Igvq-6BmtcxH2xdaI7BG-4",
-    "pc_name": "PC-2",
+    "url": "https://pfoxlnlqjeibqxmgsohn.supabase.co",
+    "key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBmb3hsbmxxamVpYnF4bWdzb2huIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDM2OTIyNiwiZXhwIjoyMDg1OTQ1MjI2fQ.zNgr0_KuGNPtXDc5VMyvnASFuy3w-aafnJHBVDM-kKU",
+    "bot_id": "",
     "hardware_id": "0E59A1A8-1F44-0000-0000-000000000000"
   }
 }
