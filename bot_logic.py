@@ -512,27 +512,27 @@ class Bot:
         self.push_monitoring_update()
         self.drift_detection() 
         
-        elapsed_seconds = time.time() - self.start_time
+        current_bal = self.get_current_balance()
 
-        # 1. CHECK DURATION LIMIT
-        if self.target_duration > 0 and elapsed_seconds >= self.target_duration:
-            logger.log(f"SESSION STOP: Time limit of {int(self.target_duration / 60)}m reached.", "WARNING")
-            self.running = False
+        # --- INITIALIZE TARGETS IF NEW SESSION ---
+        if self.starting_balance is None and current_bal is not None:
+            self.starting_balance = current_bal
+            if self.target_percentage:
+                self.target_balance = self.starting_balance + (self.target_percentage / 100 * self.starting_balance)
+                logger.log(f"Session Start Balance: {self.starting_balance} | Goal: {self.target_balance}", "INFO")
+
+        # 1. OPTIONAL: Periodic Sync if idle
+        if not self.analyze_state():
+            if time.time() - self.last_sync_time > 5:
+                self.push_monitoring_update()
+            time.sleep(0.2)
+            # We still check limits here so bot can stop while waiting for a hand if time runs out
+            if self.target_duration > 0 and elapsed_seconds >= self.target_duration:
+                logger.log(f"SESSION STOP: Time limit reached.", "WARNING")
+                self.stop_remotely("Time Limit")
+                return
             return
 
-        # 2. CHECK PROFIT LIMIT
-        if self.target_percentage is not None:
-            current_bal = self.get_current_balance()
-            if self.starting_balance is None and current_bal is not None:
-                self.starting_balance = current_bal
-                self.target_balance = self.starting_balance + (self.target_percentage / 100 * self.starting_balance)
-                self.first_run = False
-
-            if current_bal is not None and self.target_balance is not None:
-                if current_bal >= self.target_balance:
-                    logger.log(f"GOAL REACHED! Profit target (>{self.target_percentage}%) hit.", "SUCCESS")
-                    self.running = False
-                    return
         
         current_target_char = self.pattern[self.pattern_index] 
         if current_target_char == 'T':
@@ -613,12 +613,45 @@ class Bot:
             self.last_end_balance = end_bal
             self.current_bet_start_balance = None 
 
+            # --- AFTER LOGGING: CHECK LIMITS ---
+            elapsed_seconds = time.time() - self.start_time
+            if self.target_duration > 0 and elapsed_seconds >= self.target_duration:
+                logger.log(f"SESSION STOP: Time limit reached.", "WARNING")
+                self.stop_remotely("Time Limit")
+                return
+
+            if self.target_percentage is not None:
+                current_bal = self.get_current_balance()
+                if current_bal is not None and self.target_balance is not None:
+                    if current_bal >= self.target_balance:
+                        logger.log(f"GOAL REACHED! Profit target (>{self.target_percentage}%) hit.", "SUCCESS")
+                        self.stop_remotely("Goal Reached")
+                        return
+
+            # --- PLACING NEXT BET ---
             self.execute_bet(self.pattern[self.pattern_index])
             time.sleep(random.uniform(1.5, 3.0))
         else:
-            if time.time() - self.last_sync_time > 5:
-                self.push_monitoring_update()
-            time.sleep(0.2)
+            time.sleep(0.1)
+
+    def stop_remotely(self, reason_status):
+        """Stops the bot and updates the database status so it doesn't auto-restart."""
+        self.running = False
+        self.push_monitoring_update(status=reason_status)
+        
+        # Also set bot_status to 'stop' in DB so the website toggle flips to off
+        if self.sb_url and self.sb_key and self.bot_id:
+            headers = {
+                "apikey": self.sb_key,
+                "Authorization": f"Bearer {self.sb_key}",
+                "Content-Type": "application/json",
+            }
+            try:
+                url = f"{self.sb_url}/rest/v1/bot?id=eq.{self.bot_id}"
+                requests.patch(url, headers=headers, json={"bot_status": "stop"}, timeout=5)
+            except:
+                pass
+
 
     def start(self):
         self.running = True
