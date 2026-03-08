@@ -9,6 +9,56 @@ from utils import logger
 import calibration
 
 
+class ModernSwitch(tk.Canvas):
+    def __init__(self, parent, variable, command=None, width=50, height=24, bg_color="#2c3e50"):
+        super().__init__(parent, width=width, height=height, bg=bg_color, highlightthickness=0, cursor="hand2")
+        self.variable = variable
+        self.command = command
+        self.width = width
+        self.height = height
+        
+        self.padding = 2
+        
+        # Colors
+        self.on_color = "#27ae60"
+        self.off_color = "#7f8c8d"
+        self.knob_color = "#ffffff"
+        
+        self.bind("<Button-1>", self.toggle)
+        self.draw()
+
+    def draw(self):
+        self.delete("all")
+        is_on = self.variable.get()
+        color = self.on_color if is_on else self.off_color
+        
+        # Track (Rounded rectangle)
+        x1, y1 = self.padding, self.padding
+        x2, y2 = self.width - self.padding, self.height - self.padding
+        r = (y2 - y1) / 2
+        
+        # Draw rounded track
+        self.create_oval(x1, y1, x1 + 2*r, y2, fill=color, outline=color)
+        self.create_oval(x2 - 2*r, y1, x2, y2, fill=color, outline=color)
+        self.create_rectangle(x1 + r, y1, x2 - r, y2, fill=color, outline=color)
+        
+        # Knob
+        if is_on:
+            kx1 = self.width - self.padding - 2*r
+            kx2 = self.width - self.padding
+        else:
+            kx1 = self.padding
+            kx2 = self.padding + 2*r
+            
+        self.create_oval(kx1 + 1, y1 + 1, kx2 - 1, y2 - 1, fill=self.knob_color, outline=self.knob_color)
+
+    def toggle(self, event=None):
+        self.variable.set(not self.variable.get())
+        self.draw()
+        if self.command:
+            self.command()
+
+
 class BaccaratGUI:
     def __init__(self, root):
         self.root = root
@@ -47,6 +97,9 @@ class BaccaratGUI:
         self.is_calibrating = False
         self.calib_event = threading.Event()
         
+        # Local Mode State
+        self.local_mode = tk.BooleanVar(value=False)
+        
         # Initialize bot on startup for immediate DB registration
         self.initialize_bot_instance()
         
@@ -81,6 +134,27 @@ class BaccaratGUI:
  
         self.next_btn = ttk.Button(self.setup_frame, text="NEXT STEP", command=self.trigger_next_step, state=tk.DISABLED)
         self.next_btn.pack(side=tk.LEFT, padx=5)
+
+        # Local Mode Label and Switch
+        self.local_mode_frame = tk.Frame(self.setup_frame, bg="#2c3e50")
+        self.local_mode_frame.pack(side=tk.RIGHT, padx=15)
+        
+        tk.Label(
+            self.local_mode_frame, 
+            text="LOCAL MODE", 
+            fg="#f1c40f", 
+            bg="#2c3e50", 
+            font=("Helvetica", 10, "bold")
+        ).pack(side=tk.TOP, pady=(0, 2))
+        
+        self.local_switch = ModernSwitch(
+            self.local_mode_frame, 
+            variable=self.local_mode,
+            command=self.on_local_mode_toggle,
+            width=60,
+            height=28
+        )
+        self.local_switch.pack(side=tk.TOP)
 
         # --- Bot Configuration ---
         self.config_frame = tk.LabelFrame(self.main_frame, text="Bot Settings", fg="#ecf0f1", bg="#2c3e50", font=("Helvetica", 10, "bold"))
@@ -177,7 +251,8 @@ class BaccaratGUI:
         self.test_btn = tk.Button(cntrl_frame, text="TEST CLICKS", command=self.test_bot_clicks, bg="#2980b9", fg="white", font=("Helvetica", 12, "bold"), width=15)
         self.test_btn.pack(side=tk.LEFT, expand=True, padx=5)
         
-        self.enable_bot_controls() # Changed from disable_bot_controls to enable_bot_controls
+        self.enable_bot_controls()
+        self.on_local_mode_toggle() # Initialize visibility based on default (False)
 
     def setup_logging(self):
         # Override logger.log to also write to our log_area
@@ -233,7 +308,7 @@ class BaccaratGUI:
         mode = self.mode_var.get()
         if mode == "Standard Martingale":
             self.pattern_label.grid_remove()
-            self.pattern_entry.grid_remove()
+            self.pattern_combo.grid_remove()
             self.side_label.grid(row=2, column=0, sticky=tk.W, padx=10, pady=5)
             self.side_combo.grid(row=2, column=1, sticky=tk.W, padx=10, pady=5)
         else:
@@ -242,15 +317,34 @@ class BaccaratGUI:
             self.pattern_label.grid(row=2, column=0, sticky=tk.W, padx=10, pady=5)
             self.pattern_combo.grid(row=2, column=1, sticky=tk.W, padx=10, pady=5)
 
+    def on_local_mode_toggle(self):
+        is_local = self.local_mode.get()
+        if is_local:
+            self.config_frame.config(text="Bot Settings (Local)")
+            self.config_frame.pack(fill=tk.X, pady=10, padx=5, after=self.setup_frame)
+            # Gray out remote settings
+            for label in self.remote_labels.values():
+                label.config(fg="#7f8c8d")
+            logger.log("Local Mode ENABLED: Ignoring website commands.", "WARNING")
+        else:
+            self.config_frame.config(text="Bot Settings")
+            self.config_frame.pack_forget()
+            # Restore remote settings color
+            for label in self.remote_labels.values():
+                label.config(fg="#f1c40f")
+            logger.log("Local Mode DISABLED: Listening to website commands.", "INFO")
+        
+        if hasattr(self, 'bot') and self.bot:
+            self.bot.local_mode = is_local
+        
+        if hasattr(self, 'local_switch'):
+            self.local_switch.draw()
 
     def enable_bot_controls(self):
         self.start_btn.config(state=tk.NORMAL)
         self.base_bet_entry.config(state=tk.NORMAL)
         self.pattern_combo.config(state="normal")
         self.mode_combo.config(state="readonly")
-
-    def disable_bot_controls(self):
-        self.start_btn.config(state=tk.DISABLED)
 
     def on_strategy_change(self, *args):
         """Automatically set defaults when Burst strategy is selected."""

@@ -38,6 +38,7 @@ class Bot:
         self.first_run = True 
         self.start_time = time.time()
         self.last_sync_time = 0
+        self.local_mode = False
         
         # Strategy Multipliers (Transitions from Level 1 up to Level 10)
         self.strategies = {
@@ -288,6 +289,10 @@ class Bot:
             self.strategy = "Standard"
 
     def sync_remote_settings(self, remote_data):
+        if self.local_mode:
+            # Still update status/balance to DB, but don't accept changes FROM DB
+            return
+
         # 1. Pattern Sync
         new_pattern = remote_data.get('pattern')
         if new_pattern and new_pattern.upper() != self.pattern:
