@@ -167,11 +167,17 @@ class BaccaratGUI:
         self.base_bet_entry.grid(row=0, column=1, sticky=tk.W, padx=10, pady=5)
         
         # Mode
-        tk.Label(self.config_frame, text="Mode:", fg="#ecf0f1", bg="#2c3e50").grid(row=1, column=0, sticky=tk.W, padx=10, pady=5)
+        tk.Label(self.config_frame, text="Betting Mode:", fg="#ecf0f1", bg="#2c3e50").grid(row=1, column=0, sticky=tk.W, padx=10, pady=5)
         self.mode_var = tk.StringVar(value="Sequence")
         self.mode_combo = ttk.Combobox(self.config_frame, textvariable=self.mode_var, values=["Sequence", "Standard Martingale"], state="readonly")
         self.mode_combo.grid(row=1, column=1, sticky=tk.W, padx=10, pady=5)
         self.mode_var.trace_add("write", self.toggle_mode_fields)
+
+        # Game Mode
+        tk.Label(self.config_frame, text="Game Mode:", fg="#ecf0f1", bg="#2c3e50").grid(row=1, column=2, sticky=tk.W, padx=10, pady=5)
+        self.game_mode_var = tk.StringVar(value="Classic Baccarat")
+        self.game_mode_combo = ttk.Combobox(self.config_frame, textvariable=self.game_mode_var, values=["Classic Baccarat", "Always 8 Baccarat"], state="readonly")
+        self.game_mode_combo.grid(row=1, column=3, sticky=tk.W, padx=10, pady=5)
 
         # Pattern
         self.pattern_label = tk.Label(self.config_frame, text="Pattern:", fg="#ecf0f1", bg="#2c3e50")
@@ -293,7 +299,11 @@ class BaccaratGUI:
 
         try:
             logger.log("CALIBRATION STARTED: Watch the logs for instructions.", "WARNING")
-            calibration.main(wait_func=gui_waiter)
+            
+            # Use 50 as min chip if Always 8 is selected
+            min_chip = 50 if self.game_mode_var.get() == "Always 8 Baccarat" else 10
+            
+            calibration.main(wait_func=gui_waiter, min_chip=min_chip)
             logger.log("CALIBRATION FINISHED", "SUCCESS")
             self.root.after(0, lambda: messagebox.showinfo("Success", "Calibration complete!"))
         except Exception as e:
@@ -426,6 +436,8 @@ class BaccaratGUI:
         if self.bot:
             self.bot.base_bet = int(base_bet)
             self.bot.current_bet = self.bot.base_bet
+            self.bot.game_mode = self.game_mode_var.get()
+            self.bot.session_lost_amount = 0 # Reset on start
             self.bot.pattern = pattern.upper().replace("-", "").replace(" ", "")
             self.bot.reset_on_cycle = reset_on_cycle
             self.bot.target_percentage = target_pct

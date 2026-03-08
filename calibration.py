@@ -1,6 +1,7 @@
 import pyautogui
 import json
 import time
+import os
 import sys
 from utils import logger
 from PIL import Image
@@ -63,11 +64,19 @@ def capture_color_baseline(coords, label):
         logger.log(f"Failed to capture color for {label}: {e}", "ERROR")
         return (0, 0, 0)
 
-def main(wait_func=input):
-    logger.log("Starting Calibration Phase...", "INFO")
+def main(wait_func=input, min_chip=10):
+    logger.log(f"Starting Calibration Phase (Min Chip: {min_chip})...", "INFO")
     logger.log("HINT: You can use the GUI 'Next' button or SPACE key (if bound).", "DEBUG")
-    config = {}
     
+    # Load existing config if it exists to avoid wiping everything
+    config = {}
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                config = json.load(f)
+        except:
+            pass
+
     # 1. Capture Targets
     config['target_a'] = get_coordinate("Target A (Banker)", wait_func)
     config['target_b'] = get_coordinate("Target B (Player)", wait_func)
@@ -84,8 +93,9 @@ def main(wait_func=input):
         
     # 3. Chip Calibration
     logger.log("--- Calibrating Chips ---", "INFO")
-    chips = {}
-    chip_values = [10, 50, 100, 250, 500, 1000, 5000, 10000]
+    chips = config.get('chips', {})
+    all_possible_chips = [10, 50, 100, 250, 500, 1000, 5000, 10000]
+    chip_values = [v for v in all_possible_chips if v >= min_chip]
     
     for val in chip_values:
         config['chips'] = chips # Update mid-loop for partial saves if needed

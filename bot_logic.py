@@ -39,6 +39,8 @@ class Bot:
         self.start_time = time.time()
         self.last_sync_time = 0
         self.local_mode = False
+        self.game_mode = "Classic Baccarat"
+        self.session_lost_amount = 0 # Track accumulated loss for specific recovery modes
         
         # Strategy Multipliers (Transitions from Level 1 up to Level 10)
         self.strategies = {
@@ -581,24 +583,32 @@ class Bot:
             if actual_result == "WIN":
                 self.current_bet = self.base_bet
                 self.martingale_level = 0
+                self.session_lost_amount = 0 # Reset recovery tracking
                 self.pattern_index = (self.pattern_index + 1) % len(self.pattern)
             elif actual_result == "PUSH":
                 logger.log("Tie detected: Keeping same pattern index for next bet.", "INFO")
             elif actual_result == "LOSS":
-                # Smart Banker Multiplier Override (2.11x)
-                current_target_char = self.pattern[self.pattern_index]
-                has_consecutive_bankers = "BB" in self.pattern
-                
-                if current_target_char == 'B' and has_consecutive_bankers:
-                    self.current_bet = math.ceil(self.current_bet * 2.11 / 10) * 10
-                    logger.log(f"Banker Multiplier (2.11x) applied (Pattern contains 'BB'). Rounding up to nearest 10.", "INFO")
+                if self.game_mode == "Always 8 Baccarat":
+                    self.session_lost_amount += prev_bet
+                    # Formula: ((total lost) / 0.62) + 50
+                    raw_bet = (self.session_lost_amount / 0.62) + 50
+                    self.current_bet = math.ceil(raw_bet / 10) * 10
+                    logger.log(f"Always 8 Logic: Total Lost={self.session_lost_amount}, Next Bet={self.current_bet}", "INFO")
                 else:
-                    multipliers = self.strategies.get(self.strategy, self.strategies["Standard"])
-                    if self.martingale_level < len(multipliers):
-                        multiplier = multipliers[self.martingale_level]
-                        self.current_bet = int(self.current_bet * multiplier)
+                    # Smart Banker Multiplier Override (2.11x)
+                    current_target_char = self.pattern[self.pattern_index]
+                    has_consecutive_bankers = "BB" in self.pattern
+                    
+                    if current_target_char == 'B' and has_consecutive_bankers:
+                        self.current_bet = math.ceil(self.current_bet * 2.11 / 10) * 10
+                        logger.log(f"Banker Multiplier (2.11x) applied (Pattern contains 'BB'). Rounding up to nearest 10.", "INFO")
                     else:
-                        self.current_bet *= 2
+                        multipliers = self.strategies.get(self.strategy, self.strategies["Standard"])
+                        if self.martingale_level < len(multipliers):
+                            multiplier = multipliers[self.martingale_level]
+                            self.current_bet = int(self.current_bet * multiplier)
+                        else:
+                            self.current_bet *= 2
 
                 self.martingale_level += 1
                 self.pattern_index = (self.pattern_index + 1) % len(self.pattern)
