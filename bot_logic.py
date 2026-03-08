@@ -354,7 +354,14 @@ class Bot:
             except ValueError:
                 self.target_duration = 0
 
-        # 7. Bot Status Sync (enum: 'run' or 'stop')
+        # 7. Game Mode Sync
+        new_game_mode = remote_data.get('game_mode')
+        if new_game_mode and new_game_mode in ["Classic Baccarat", "Always 8 Baccarat"]:
+            if new_game_mode != self.game_mode:
+                self.game_mode = new_game_mode
+                logger.log(f"Synced Game Mode: {self.game_mode}", "INFO")
+
+        # 8. Bot Status Sync (enum: 'run' or 'stop')
         bot_status = remote_data.get('bot_status')
         if bot_status:
             should_run = (bot_status == 'run')
@@ -374,7 +381,7 @@ class Bot:
             self.running = True
             logger.log("Starting bot (Remote Command)...", "INFO")
 
-        # 8. Final validation
+        # 9. Final validation
         self.apply_constraints()
 
         # Notify UI if callback exists

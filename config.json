@@ -2,17 +2,29 @@
   "target_a": {
     "x": 1141,
     "y": 957,
-    "color": [176, 6, 24]
+    "color": [
+      176,
+      6,
+      24
+    ]
   },
   "target_b": {
     "x": 767,
     "y": 965,
-    "color": [7, 54, 144]
+    "color": [
+      7,
+      54,
+      144
+    ]
   },
   "target_c": {
     "x": 953,
     "y": 964,
-    "color": [6, 118, 31]
+    "color": [
+      6,
+      118,
+      31
+    ]
   },
   "status_region_main": {
     "x": 842,
@@ -70,6 +82,6 @@
     "url": "https://pfoxlnlqjeibqxmgsohn.supabase.co",
     "key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBmb3hsbmxxamVpYnF4bWdzb2huIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDM2OTIyNiwiZXhwIjoyMDg1OTQ1MjI2fQ.zNgr0_KuGNPtXDc5VMyvnASFuy3w-aafnJHBVDM-kKU",
     "bot_id": "958F87D1",
-    "hardware_id": "4aa220fa-3061-4f7f-89cc-8ad4fd34e41a"
+    "hardware_id": "2cbbe1fd-f402-411b-8842-0688f30c6655"
   }
 }

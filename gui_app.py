@@ -160,32 +160,32 @@ class BaccaratGUI:
         self.config_frame = tk.LabelFrame(self.main_frame, text="Bot Settings", fg="#ecf0f1", bg="#2c3e50", font=("Helvetica", 10, "bold"))
         self.config_frame.pack(fill=tk.X, pady=10, padx=5)
         
-        # Base Bet
-        tk.Label(self.config_frame, text="Base Bet:", fg="#ecf0f1", bg="#2c3e50").grid(row=0, column=0, sticky=tk.W, padx=10, pady=5)
-        self.base_bet_var = tk.StringVar(value="10")
-        self.base_bet_entry = ttk.Entry(self.config_frame, textvariable=self.base_bet_var, width=10)
-        self.base_bet_entry.grid(row=0, column=1, sticky=tk.W, padx=10, pady=5)
-        
-        # Mode
-        tk.Label(self.config_frame, text="Betting Mode:", fg="#ecf0f1", bg="#2c3e50").grid(row=1, column=0, sticky=tk.W, padx=10, pady=5)
-        self.mode_var = tk.StringVar(value="Sequence")
-        self.mode_combo = ttk.Combobox(self.config_frame, textvariable=self.mode_var, values=["Sequence", "Standard Martingale"], state="readonly")
-        self.mode_combo.grid(row=1, column=1, sticky=tk.W, padx=10, pady=5)
-        self.mode_var.trace_add("write", self.toggle_mode_fields)
-
-        # Game Mode
-        tk.Label(self.config_frame, text="Game Mode:", fg="#ecf0f1", bg="#2c3e50").grid(row=1, column=2, sticky=tk.W, padx=10, pady=5)
+        # Game Mode (Moved to Row 0)
+        tk.Label(self.config_frame, text="Game Mode:", fg="#ecf0f1", bg="#2c3e50").grid(row=0, column=0, sticky=tk.W, padx=10, pady=5)
         self.game_mode_var = tk.StringVar(value="Classic Baccarat")
         self.game_mode_combo = ttk.Combobox(self.config_frame, textvariable=self.game_mode_var, values=["Classic Baccarat", "Always 8 Baccarat"], state="readonly")
-        self.game_mode_combo.grid(row=1, column=3, sticky=tk.W, padx=10, pady=5)
+        self.game_mode_combo.grid(row=0, column=1, sticky=tk.W, padx=10, pady=5)
+
+        # Base Bet (Moved to Row 1)
+        tk.Label(self.config_frame, text="Base Bet:", fg="#ecf0f1", bg="#2c3e50").grid(row=1, column=0, sticky=tk.W, padx=10, pady=5)
+        self.base_bet_var = tk.StringVar(value="10")
+        self.base_bet_entry = ttk.Entry(self.config_frame, textvariable=self.base_bet_var, width=10)
+        self.base_bet_entry.grid(row=1, column=1, sticky=tk.W, padx=10, pady=5)
+        
+        # Mode (Moved to Row 2)
+        tk.Label(self.config_frame, text="Betting Mode:", fg="#ecf0f1", bg="#2c3e50").grid(row=2, column=0, sticky=tk.W, padx=10, pady=5)
+        self.mode_var = tk.StringVar(value="Sequence")
+        self.mode_combo = ttk.Combobox(self.config_frame, textvariable=self.mode_var, values=["Sequence", "Standard Martingale"], state="readonly")
+        self.mode_combo.grid(row=2, column=1, sticky=tk.W, padx=10, pady=5)
+        self.mode_var.trace_add("write", self.toggle_mode_fields)
 
         # Pattern
         self.pattern_label = tk.Label(self.config_frame, text="Pattern:", fg="#ecf0f1", bg="#2c3e50")
-        self.pattern_label.grid(row=2, column=0, sticky=tk.W, padx=10, pady=5)
+        self.pattern_label.grid(row=3, column=0, sticky=tk.W, padx=10, pady=5)
         self.pattern_options = ["All P", "All B", "PB", "BP", "PPPB", "BBBP"]
         self.pattern_var = tk.StringVar(value="PPPB")
         self.pattern_combo = ttk.Combobox(self.config_frame, textvariable=self.pattern_var, values=self.pattern_options, width=17)
-        self.pattern_combo.grid(row=2, column=1, sticky=tk.W, padx=10, pady=5)
+        self.pattern_combo.grid(row=3, column=1, sticky=tk.W, padx=10, pady=5)
         
         # Side (For Standard mode)
         self.side_label = tk.Label(self.config_frame, text="Bet Side:", fg="#ecf0f1", bg="#2c3e50")
@@ -193,23 +193,23 @@ class BaccaratGUI:
         self.side_combo = ttk.Combobox(self.config_frame, textvariable=self.side_var, values=["Banker", "Player"], state="readonly")
 
         # Strategy (Tank, Sweeper, etc.)
-        tk.Label(self.config_frame, text="Strategy:", fg="#ecf0f1", bg="#2c3e50").grid(row=3, column=0, sticky=tk.W, padx=10, pady=5)
+        tk.Label(self.config_frame, text="Strategy:", fg="#ecf0f1", bg="#2c3e50").grid(row=4, column=0, sticky=tk.W, padx=10, pady=5)
         self.strategy_var = tk.StringVar(value="Standard")
         self.strategy_combo = ttk.Combobox(self.config_frame, textvariable=self.strategy_var, values=["Standard", "Tank", "Sweeper", "Burst"], state="readonly")
-        self.strategy_combo.grid(row=3, column=1, sticky=tk.W, padx=10, pady=5)
+        self.strategy_combo.grid(row=4, column=1, sticky=tk.W, padx=10, pady=5)
         self.strategy_var.trace_add("write", self.on_strategy_change)
 
         # Target Profit %
-        tk.Label(self.config_frame, text="Target Profit %:", fg="#ecf0f1", bg="#2c3e50").grid(row=4, column=0, sticky=tk.W, padx=10, pady=5)
+        tk.Label(self.config_frame, text="Target Profit %:", fg="#ecf0f1", bg="#2c3e50").grid(row=5, column=0, sticky=tk.W, padx=10, pady=5)
         self.target_pct_var = tk.StringVar(value="10") # Default to 10%
         self.target_pct_entry = ttk.Entry(self.config_frame, textvariable=self.target_pct_var, width=10)
-        self.target_pct_entry.grid(row=4, column=1, sticky=tk.W, padx=10, pady=5)
+        self.target_pct_entry.grid(row=5, column=1, sticky=tk.W, padx=10, pady=5)
 
         # Max Martingale Level
-        tk.Label(self.config_frame, text="Max Martingale Level:", fg="#ecf0f1", bg="#2c3e50").grid(row=5, column=0, sticky=tk.W, padx=10, pady=5)
+        tk.Label(self.config_frame, text="Max Martingale Level:", fg="#ecf0f1", bg="#2c3e50").grid(row=6, column=0, sticky=tk.W, padx=10, pady=5)
         self.max_level_var = tk.StringVar(value="10")
         self.max_level_entry = ttk.Entry(self.config_frame, textvariable=self.max_level_var, width=10)
-        self.max_level_entry.grid(row=5, column=1, sticky=tk.W, padx=10, pady=5)
+        self.max_level_entry.grid(row=6, column=1, sticky=tk.W, padx=10, pady=5)
 
         # Initial Toggle
         self.toggle_mode_fields()
@@ -225,6 +225,7 @@ class BaccaratGUI:
             ("Pattern:", "pattern"),
             ("Strategy:", "strategy"),
             ("Target %:", "target_profit"),
+            ("Game Mode:", "game_mode"),
             ("Status:", "command")
         ]
         
@@ -319,13 +320,13 @@ class BaccaratGUI:
         if mode == "Standard Martingale":
             self.pattern_label.grid_remove()
             self.pattern_combo.grid_remove()
-            self.side_label.grid(row=2, column=0, sticky=tk.W, padx=10, pady=5)
-            self.side_combo.grid(row=2, column=1, sticky=tk.W, padx=10, pady=5)
+            self.side_label.grid(row=3, column=0, sticky=tk.W, padx=10, pady=5)
+            self.side_combo.grid(row=3, column=1, sticky=tk.W, padx=10, pady=5)
         else:
             self.side_label.grid_remove()
             self.side_combo.grid_remove()
-            self.pattern_label.grid(row=2, column=0, sticky=tk.W, padx=10, pady=5)
-            self.pattern_combo.grid(row=2, column=1, sticky=tk.W, padx=10, pady=5)
+            self.pattern_label.grid(row=3, column=0, sticky=tk.W, padx=10, pady=5)
+            self.pattern_combo.grid(row=3, column=1, sticky=tk.W, padx=10, pady=5)
 
     def on_local_mode_toggle(self):
         is_local = self.local_mode.get()
