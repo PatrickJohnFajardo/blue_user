@@ -44,6 +44,7 @@ class Bot:
         self.last_sync_time = 0
         self.local_mode = False
         self.game_mode = "Classic Baccarat"
+        self._network_failures = 0  # Track consecutive network failures
         self.betting_mode = "Sequence"
         self.session_lost_amount = 0 # Track accumulated loss for specific recovery modes
         
@@ -236,6 +237,7 @@ class Bot:
                 timeout=5
             )
             self.last_sync_time = time.time()
+            self._network_failures = 0  # Reset on success
             
             if response.status_code in [200, 204]:
                 # Always do a separate GET to pull the latest remote settings
@@ -251,7 +253,11 @@ class Bot:
             else:
                 logger.log(f"Supabase Sync Failed: {response.status_code}", "DEBUG")
         except Exception as e:
-            logger.log(f"Monitoring error: {e}", "DEBUG")
+            self._network_failures += 1
+            if self._network_failures <= 2:
+                logger.log(f"Monitoring error (network): {type(e).__name__}", "DEBUG")
+            elif self._network_failures == 3:
+                logger.log("Network unreachable — bot continues running in offline mode.", "WARNING")
 
     def calculate_banker_density(self, pattern):
         if not pattern: return 0
@@ -381,16 +387,21 @@ class Bot:
                     logger.log(f"Synced Game Mode: {self.game_mode}", "INFO")
 
         # 8. Bot Status Sync (enum: 'run' or 'stop')
+        # Only act if we have an explicit status — ignore missing/null to avoid stopping on network glitches
         bot_status = remote_data.get('bot_status')
-        if bot_status:
+        remote_cmd = remote_data.get('command')
+        
+        if bot_status is not None:
             should_run = (bot_status == 'run')
-        else:
-            # Fallback to command field
-            remote_cmd = remote_data.get('command')
+        elif remote_cmd is not None:
+            # Fallback to command field only when explicitly set
             if isinstance(remote_cmd, bool):
                 should_run = remote_cmd
             else:
                 should_run = str(remote_cmd).lower() in ['true', 'start', 'run', '1']
+        else:
+            # No explicit command received — keep current state (don't stop bot)
+            should_run = self.running
                 
         if not should_run and self.running:
             self.running = False
