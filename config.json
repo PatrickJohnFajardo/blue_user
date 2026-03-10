@@ -1,87 +1,87 @@
 {
   "target_a": {
-    "x": 1141,
-    "y": 957,
+    "x": 1176,
+    "y": 836,
     "color": [
-      176,
-      6,
-      24
+      163,
+      29,
+      41
     ]
   },
   "target_b": {
-    "x": 767,
-    "y": 965,
+    "x": 790,
+    "y": 809,
     "color": [
-      7,
-      54,
-      144
+      16,
+      60,
+      138
     ]
   },
   "target_c": {
-    "x": 953,
-    "y": 964,
+    "x": 981,
+    "y": 805,
     "color": [
       6,
-      118,
-      31
+      108,
+      27
     ]
   },
   "status_region_main": {
-    "x": 842,
-    "y": 412,
-    "width": 221,
+    "x": 872,
+    "y": 380,
+    "width": 230,
     "height": 56
   },
   "status_region_tie": {
-    "x": 839,
-    "y": 360,
-    "width": 225,
-    "height": 55
+    "x": 852,
+    "y": 320,
+    "width": 242,
+    "height": 62
   },
   "status_region_balance": {
-    "x": 65,
-    "y": 1146,
-    "width": 109,
-    "height": 43
+    "x": 126,
+    "y": 964,
+    "width": 85,
+    "height": 40
   },
   "chips": {
     "10": {
-      "x": 750,
-      "y": 1155
+      "x": 759,
+      "y": 984
     },
     "50": {
-      "x": 816,
-      "y": 1158
+      "x": 839,
+      "y": 975
     },
     "100": {
-      "x": 873,
-      "y": 1158
+      "x": 899,
+      "y": 982
     },
     "250": {
-      "x": 923,
-      "y": 1158
+      "x": 954,
+      "y": 983
     },
     "500": {
-      "x": 984,
-      "y": 1159
+      "x": 1023,
+      "y": 985
     },
     "1000": {
-      "x": 1049,
-      "y": 1159
+      "x": 1088,
+      "y": 984
     },
     "5000": {
-      "x": 1114,
-      "y": 1165
+      "x": 1151,
+      "y": 987
     },
     "10000": {
-      "x": 1165,
-      "y": 1165
+      "x": 1214,
+      "y": 985
     }
   },
   "supabase": {
     "url": "https://pfoxlnlqjeibqxmgsohn.supabase.co",
     "key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBmb3hsbmxxamVpYnF4bWdzb2huIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDM2OTIyNiwiZXhwIjoyMDg1OTQ1MjI2fQ.zNgr0_KuGNPtXDc5VMyvnASFuy3w-aafnJHBVDM-kKU",
-    "bot_id": "958F87D1",
+    "bot_id": "92A8CEEE",
     "hardware_id": "2cbbe1fd-f402-411b-8842-0688f30c6655"
   }
 }

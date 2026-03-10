@@ -45,6 +45,8 @@ class Bot:
         self.local_mode = False
         self.game_mode = "Classic Baccarat"
         self._network_failures = 0  # Track consecutive network failures
+        self._total_hands_played = 0 # Track hands since start
+        self._balance_check_cache = [] # For consistency checking
         self.betting_mode = "Sequence"
         self.session_lost_amount = 0 # Track accumulated loss for specific recovery modes
         
@@ -447,7 +449,15 @@ class Bot:
             image = self.capture_status_region('status_region_balance')
             text = pytesseract.image_to_string(image.convert('L')).strip()
             clean_text = "".join(c for c in text if c.isdigit() or c == '.')
-            if clean_text: return float(clean_text)
+            if clean_text:
+                new_val = float(clean_text)
+                # Sanity check: If we have a previous balance, don't allow impossible jumps (e.g. +5k in one go)
+                if self.last_end_balance is not None:
+                    diff = abs(new_val - self.last_end_balance)
+                    if diff > 5000: # Adjust threshold if needed
+                        logger.log(f"Balance OCR Glitch suspected: {self.last_end_balance} -> {new_val}. Ignoring.", "DEBUG")
+                        return self.last_end_balance
+                return new_val
         except: pass
         return None
 
@@ -553,10 +563,18 @@ class Bot:
 
         # --- INITIALIZE TARGETS IF NEW SESSION ---
         if self.starting_balance is None and current_bal is not None:
-            self.starting_balance = current_bal
-            if self.target_percentage:
-                self.target_balance = self.starting_balance + (self.target_percentage / 100 * self.starting_balance)
-                logger.log(f"Session Start Balance: {self.starting_balance} | Goal: {self.target_balance}", "INFO")
+            # Consistency check: Need 3 identical readings to set starting balance
+            self._balance_check_cache.append(current_bal)
+            if len(self._balance_check_cache) >= 3:
+                if all(b == self._balance_check_cache[0] for b in self._balance_check_cache):
+                    self.starting_balance = current_bal
+                    self.last_end_balance = current_bal
+                    if self.target_percentage:
+                        self.target_balance = self.starting_balance + (self.target_percentage / 100 * self.starting_balance)
+                        logger.log(f"Session Start Balance: {self.starting_balance} | Goal: {self.target_balance}", "INFO")
+                else:
+                    self._balance_check_cache.pop(0) # Keep sliding window
+            return # Wait for stability
 
         # 1. OPTIONAL: Periodic Sync if idle
         if not self.analyze_state():
@@ -607,6 +625,7 @@ class Bot:
                 self.pattern_index = 0
                 self.last_result = "SIGHTED"
                 self.last_end_balance = self.get_current_balance()
+                self._total_hands_played = 0
                 self.execute_bet(self.pattern[self.pattern_index])
                 return
 
@@ -649,6 +668,7 @@ class Bot:
                     return
 
             self.last_result = actual_result
+            self._total_hands_played += 1
             
             end_bal = self.get_current_balance()
             history_start = self.current_bet_start_balance if self.current_bet_start_balance is not None else self.last_end_balance
@@ -666,7 +686,7 @@ class Bot:
                 self.stop_remotely("Time Limit")
                 return
 
-            if self.target_percentage is not None:
+            if self.target_percentage is not None and self._total_hands_played > 0:
                 current_bal = self.get_current_balance()
                 if current_bal is not None and self.target_balance is not None:
                     if current_bal >= self.target_balance:

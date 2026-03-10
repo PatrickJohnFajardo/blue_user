@@ -126,9 +126,10 @@ def initialize_environment():
         print(f"[startup] Machine GUID: {guid}")
         if sb.get("hardware_id") != guid:
             sb["hardware_id"] = guid
+            sb["bot_id"] = "" # Reset bot_id so new machine creates its own row
             config["supabase"] = sb
             save_config(config)
-            print("[startup] Updated hardware_id in config.json")
+            print("[startup] New hardware detected. Resetting bot_id for fresh registration.")
 
     # 2. Register the unit in Supabase
     if guid:

@@ -4,16 +4,18 @@ Comprehensive automation bot for Baccarat with Supabase remote management, OCR r
 
 ## 🚀 Quick Start (New PC Setup)
 
-To move this bot to a new computer, follow these 3 simple steps:
+To move this bot to a new computer, simply **Double-click `START_BOT.bat`**.
 
-### 1. Install Prerequisites
+This script will:
+1.  **Check Python**: Ensure you have Python installed.
+2.  **Auto-Install**: Create a virtual environment and install dependencies automatically.
+3.  **Register PC**: Detect your hardware and register this PC on your Supabase dashboard.
+4.  **Start Bot**: Launch the application.
 
-- **Python 3.10 or higher**: Download from [python.org](https://www.python.org/downloads/).
-  - _Important_: During installation, check the box that says **"Add Python to PATH"**.
-- **Tesseract OCR**: The bot needs this to "read" the screen.
-  - Installer is included in the `Baccarat-Bot-v2` folder.
-  - Or download from: [Tesseract at UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki).
-  - Install it to the default path: `C:\Program Files\Tesseract-OCR\`.
+### 📝 Prerequisites
+- **Python 3.10+**: Must be installed on the PC.
+- **Tesseract OCR**: Needs to be installed to `C:\Program Files\Tesseract-OCR\`.
+  - Installer is in the `Baccarat-Bot-v2` folder.
 
 ### 2. Physical Setup (Screen Calibration)
 
