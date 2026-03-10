@@ -21,6 +21,10 @@ pyautogui.FAILSAFE = True
 STRATEGY_DB_TO_BOT = {"standard": "Standard", "tank": "Tank", "sweeper": "Sweeper", "burst": "Burst"}
 STRATEGY_BOT_TO_DB = {v: k for k, v in STRATEGY_DB_TO_BOT.items()}
 
+# Game Mode mapping
+MODE_DB_TO_BOT = {"Classic": "Classic Baccarat", "classic": "Classic Baccarat", "Always 8 Baccarat": "Always 8 Baccarat", "Always 8": "Always 8 Baccarat", "always 8": "Always 8 Baccarat"}
+MODE_BOT_TO_DB = {"Classic Baccarat": "Classic", "Always 8 Baccarat": "Always 8"}
+
 class Bot:
     def __init__(self, config_file='config.json', pattern_string='B', base_bet=10, reset_on_cycle=True, target_percentage=None, max_level=10, strategy="Standard", on_settings_sync=None):
         self.config_file = config_file
@@ -167,7 +171,7 @@ class Bot:
                 "strategy": STRATEGY_BOT_TO_DB.get(self.strategy, "standard"),
                 "bot_status": "stop",
                 "balance": 0,
-                "mode": self.game_mode,
+                "mode": MODE_BOT_TO_DB.get(self.game_mode, "Classic"),
             }
             # Link to user if we found one
             if user_id:
@@ -357,11 +361,13 @@ class Bot:
                 self.target_duration = 0
 
         # 7. Game Mode Sync
-        new_game_mode = remote_data.get('mode')
-        if new_game_mode and new_game_mode in ["Classic Baccarat", "Always 8 Baccarat"]:
-            if new_game_mode != self.game_mode:
-                self.game_mode = new_game_mode
-                logger.log(f"Synced Game Mode: {self.game_mode}", "INFO")
+        raw_mode = remote_data.get('mode')
+        if raw_mode:
+            new_game_mode = MODE_DB_TO_BOT.get(raw_mode, raw_mode)
+            if new_game_mode in ["Classic Baccarat", "Always 8 Baccarat"]:
+                if new_game_mode != self.game_mode:
+                    self.game_mode = new_game_mode
+                    logger.log(f"Synced Game Mode: {self.game_mode}", "INFO")
 
         # 8. Bot Status Sync (enum: 'run' or 'stop')
         bot_status = remote_data.get('bot_status')
