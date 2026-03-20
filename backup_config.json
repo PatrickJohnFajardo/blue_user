@@ -1,0 +1,88 @@
+{
+  "target_a": {
+    "x": 1154,
+    "y": 997,
+    "color": [
+      155,
+      4,
+      20
+    ]
+  },
+  "target_b": {
+    "x": 754,
+    "y": 985,
+    "color": [
+      14,
+      59,
+      140
+    ]
+  },
+  "target_c": {
+    "x": 958,
+    "y": 984,
+    "color": [
+      6,
+      98,
+      21
+    ]
+  },
+  "status_region_main": {
+    "x": 845,
+    "y": 414,
+    "width": 216,
+    "height": 55
+  },
+  "status_region_tie": {
+    "x": 850,
+    "y": 359,
+    "width": 195,
+    "height": 53
+  },
+  "status_region_balance": {
+    "x": 67,
+    "y": 1145,
+    "width": 102,
+    "height": 45
+  },
+  "chips": {
+    "10": {
+      "x": 743,
+      "y": 1156
+    },
+    "50": {
+      "x": 816,
+      "y": 1169
+    },
+    "100": {
+      "x": 869,
+      "y": 1168
+    },
+    "250": {
+      "x": 931,
+      "y": 1152
+    },
+    "500": {
+      "x": 973,
+      "y": 1157
+    },
+    "1000": {
+      "x": 1046,
+      "y": 1160
+    },
+    "5000": {
+      "x": 1109,
+      "y": 1168
+    },
+    "10000": {
+      "x": 1167,
+      "y": 1168
+    }
+  },
+  "supabase": {
+    "url": "https://pfoxlnlqjeibqxmgsohn.supabase.co",
+    "key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBmb3hsbmxxamVpYnF4bWdzb2huIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDM2OTIyNiwiZXhwIjoyMDg1OTQ1MjI2fQ.zNgr0_KuGNPtXDc5VMyvnASFuy3w-aafnJHBVDM-kKU",
+    "bot_id": "96D7709D",
+    "hardware_id": "4aa220fa-3061-4f7f-89cc-8ad4fd34e41a",
+    "remembered_auth_id": "c4ff72de-f63e-4a70-a01c-806b564a79bc"
+  }
+}

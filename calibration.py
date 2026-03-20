@@ -3,10 +3,10 @@ import json
 import time
 import os
 import sys
-from utils import logger
+from utils import logger, find_resource
 from PIL import Image
 
-CONFIG_FILE = 'config.json'
+CONFIG_FILE = find_resource('config.json')
 
 def get_coordinate(label, wait_func=input):
     """
@@ -14,9 +14,10 @@ def get_coordinate(label, wait_func=input):
     Uses wait_func to wait for user confirmation.
     """
     logger.log(f"Calibrating: {label}", "INFO")
-    logger.log(f"Please hover your mouse over {label} and press 'Next/Space'.", "WARNING")
+    prompt = f"Please hover your mouse over {label} and press Space."
+    logger.log(prompt, "WARNING")
     
-    wait_func("Press Enter/Space when ready...")
+    wait_func(prompt)
     
     x, y = pyautogui.position()
     logger.log(f"Recorded {label} at ({x}, {y})", "SUCCESS")
@@ -28,13 +29,15 @@ def get_region(label, wait_func=input):
     """
     logger.log(f"Calibrating Region: {label}", "INFO")
     
-    logger.log(f"Step 1: Hover over TOP-LEFT of {label} and press 'Next/Space'.", "WARNING")
-    wait_func("Wait for top-left...")
+    prompt1 = f"STEP 1: Hover over TOP-LEFT of {label} and press Space."
+    logger.log(prompt1, "WARNING")
+    wait_func(prompt1)
     tl_x, tl_y = pyautogui.position()
     logger.log(f"Top-Left recorded at ({tl_x}, {tl_y})", "SUCCESS")
     
-    logger.log(f"Step 2: Hover over BOTTOM-RIGHT of {label} and press 'Next/Space'.", "WARNING")
-    wait_func("Wait for bottom-right...")
+    prompt2 = f"STEP 2: Hover over BOTTOM-RIGHT of {label} and press Space."
+    logger.log(prompt2, "WARNING")
+    wait_func(prompt2)
     br_x, br_y = pyautogui.position()
     logger.log(f"Bottom-Right recorded at ({br_x}, {br_y})", "SUCCESS")
     
@@ -78,14 +81,14 @@ def main(wait_func=input, min_chip=10):
             pass
 
     # 1. Capture Targets
-    config['target_a'] = get_coordinate("Target A (Banker)", wait_func)
-    config['target_b'] = get_coordinate("Target B (Player)", wait_func)
-    config['target_c'] = get_coordinate("Target C (Tie)", wait_func)
+    config['target_a'] = get_coordinate("BANKER", wait_func)
+    config['target_b'] = get_coordinate("PLAYER", wait_func)
+    config['target_c'] = get_coordinate("TIE", wait_func)
     
     # 2. Capture Regions
-    config['status_region_main'] = get_region("Main Status Region", wait_func)
-    config['status_region_tie'] = get_region("Tie Status Region", wait_func)
-    config['status_region_balance'] = get_region("Balance Status Region", wait_func)
+    config['status_region_main'] = get_region("MAIN STATUS REGION", wait_func)
+    config['status_region_tie'] = get_region("TIE STATUS REGION", wait_func)
+    config['status_region_balance'] = get_region("BALANCE", wait_func)
     
     if not config['status_region_main'] or not config['status_region_tie'] or not config['status_region_balance']:
         logger.log("Region calibration failed.", "ERROR")
@@ -99,14 +102,15 @@ def main(wait_func=input, min_chip=10):
     
     for val in chip_values:
         config['chips'] = chips # Update mid-loop for partial saves if needed
-        chips[str(val)] = get_coordinate(f"Chip [{val}]", wait_func)
+        chips[str(val)] = get_coordinate(f"CHIP {val}", wait_func)
     
     config['chips'] = chips
 
     # 4. Color Baselines
     logger.log("--- Capturing Color Baselines ---", "INFO")
-    logger.log("Ensure buttons are currently CLICKABLE.", "WARNING")
-    wait_func("Wait for color capture...")
+    prompt_color = "Please hover over BANKER while the betting window is open, then press Space."
+    logger.log(prompt_color, "WARNING")
+    wait_func(prompt_color)
     
     config['target_a']['color'] = capture_color_baseline(config['target_a'], "Target A")
     config['target_b']['color'] = capture_color_baseline(config['target_b'], "Target B")

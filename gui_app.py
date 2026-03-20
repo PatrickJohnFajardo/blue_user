@@ -2,112 +2,85 @@ import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 import threading
 import time
-import sys
 import os
 from bot_logic import Bot
 from utils import logger
 import calibration
-
-
-class ModernSwitch(tk.Canvas):
-    def __init__(self, parent, variable, command=None, width=50, height=24, bg_color="#2c3e50"):
-        super().__init__(parent, width=width, height=height, bg=bg_color, highlightthickness=0, cursor="hand2")
-        self.variable = variable
-        self.command = command
-        self.width = width
-        self.height = height
-        
-        self.padding = 2
-        
-        # Colors
-        self.on_color = "#27ae60"
-        self.off_color = "#7f8c8d"
-        self.knob_color = "#ffffff"
-        
-        self.bind("<Button-1>", self.toggle)
-        self.draw()
-
-    def draw(self):
-        self.delete("all")
-        is_on = self.variable.get()
-        color = self.on_color if is_on else self.off_color
-        
-        # Track (Rounded rectangle)
-        x1, y1 = self.padding, self.padding
-        x2, y2 = self.width - self.padding, self.height - self.padding
-        r = (y2 - y1) / 2
-        
-        # Draw rounded track
-        self.create_oval(x1, y1, x1 + 2*r, y2, fill=color, outline=color)
-        self.create_oval(x2 - 2*r, y1, x2, y2, fill=color, outline=color)
-        self.create_rectangle(x1 + r, y1, x2 - r, y2, fill=color, outline=color)
-        
-        # Knob
-        if is_on:
-            kx1 = self.width - self.padding - 2*r
-            kx2 = self.width - self.padding
-        else:
-            kx1 = self.padding
-            kx2 = self.padding + 2*r
-            
-        self.create_oval(kx1 + 1, y1 + 1, kx2 - 1, y2 - 1, fill=self.knob_color, outline=self.knob_color)
-
-    def toggle(self, event=None):
-        self.variable.set(not self.variable.get())
-        self.draw()
-        if self.command:
-            self.command()
+from PIL import Image, ImageTk
 
 
 class BaccaratGUI:
-    def __init__(self, root):
+    def __init__(self, root, user_auth_id=None, on_logout=None):
         self.root = root
-        self.root.title("Baccarat Automation Bot v2.0")
-        self.root.geometry("620x800")
-        self.root.configure(bg="#2c3e50")
+        self.user_auth_id = user_auth_id
+        self.on_logout = on_logout
+        self.root.title("BLUE")
+        self.root.geometry("325x150") # Reduced height for compact view
+        self.root.configure(bg="#1a1a1a")
+        self.root.resizable(False, False)
         
-        # Create a Canvas and Scrollbar for scrollability
-        self.canvas = tk.Canvas(self.root, bg="#2c3e50", highlightthickness=0)
-        self.scrollbar = ttk.Scrollbar(self.root, orient="vertical", command=self.canvas.yview)
-        self.scrollable_frame = tk.Frame(self.canvas, bg="#2c3e50")
-
-        self.scrollable_frame.bind(
-            "<Configure>",
-            lambda e: self.canvas.configure(
-                scrollregion=self.canvas.bbox("all")
-            )
-        )
-
-        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw", width=600)
-        self.canvas.configure(yscrollcommand=self.scrollbar.set)
-
-        self.canvas.pack(side="left", fill="both", expand=True)
-        self.scrollbar.pack(side="right", fill="y")
-        
-        # Bind MouseWheel to Canvas
-        self.root.bind_all("<MouseWheel>", self._on_mousewheel)
-        
-        # Add trace for strategy change
-        # (Included in setup_ui but re-referenced here for clarity)
+        # Colors
+        self.dark_blue = "#1e3a8a" # Deep dark blue for headers
+        self.bg_dark = "#1a1a1a"
+        self.text_blue = "#3498db"
         
         self.style = ttk.Style()
         self.style.theme_use('clam')
+        self.configure_styles()
         
         self.is_running = False
         self.is_calibrating = False
         self.calib_event = threading.Event()
         
-        # Local Mode State
-        self.local_mode = tk.BooleanVar(value=False)
-        
-        # Initialize bot on startup for immediate DB registration
+        # Initialize bot on startup
         self.initialize_bot_instance()
         
+        self.setup_custom_menu()
         self.setup_ui()
         self.bind_keys()
+        
+        # Handle window closing to stop bot on website
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        
+        # Connect logger to GUI
+        logger.set_callback(self.log_to_gui)
+        
+        # Automatically Start Bot Thread after login
+        self.start_bot_thread()
+        self.update_info_loop()
 
-    def _on_mousewheel(self, event):
-        self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+    def configure_styles(self):
+        self.style.configure("TLabel", background=self.bg_dark, foreground="#ecf0f1", font=("Helvetica", 10))
+        self.style.configure("TFrame", background=self.bg_dark)
+        self.style.configure("Header.TLabel", background=self.bg_dark, foreground=self.text_blue, font=("Helvetica", 18, "bold"))
+        self.style.configure("Status.TLabel", background=self.bg_dark, foreground=self.text_blue, font=("Helvetica", 12, "bold"))
+
+    def setup_custom_menu(self):
+        # Replacing native menu with a dark blue custom menu bar
+        self.menu_bar = tk.Frame(self.root, bg=self.dark_blue, height=30)
+        self.menu_bar.pack(side=tk.TOP, fill=tk.X)
+        self.menu_bar.pack_propagate(False)
+        
+        # Dropdown logic
+        self.menu_btn = tk.Menubutton(
+            self.menu_bar, text="≡ Menu", 
+            bg=self.dark_blue, fg="white", 
+            activebackground=self.text_blue, 
+            activeforeground="white",
+            relief="flat", font=("Helvetica", 10, "bold"),
+            padx=10
+        )
+        self.menu_btn.pack(side=tk.LEFT)
+        
+        self.bot_menu = tk.Menu(self.menu_btn, tearoff=0, bg=self.bg_dark, fg="white", activebackground=self.text_blue)
+        self.menu_btn.config(menu=self.bot_menu)
+        
+        self.bot_menu.add_command(label="Run Calibration", command=self.start_calibration)
+        self.bot_menu.add_command(label="Logs", command=self.toggle_logs)
+        self.bot_menu.add_separator()
+        self.bot_menu.add_command(label="Logout", command=self.handle_logout)
+        self.bot_menu.add_separator()
+        self.bot_menu.add_command(label="Exit", command=self.on_closing)
 
     def bind_keys(self):
         self.root.bind("<space>", self.on_space_pressed)
@@ -117,172 +90,155 @@ class BaccaratGUI:
             self.trigger_next_step()
 
     def setup_ui(self):
-        # Main Container - Now parented to scrollable_frame
-        self.main_frame = tk.Frame(self.scrollable_frame, bg="#2c3e50")
-        self.main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=20)
+        # Main Container
+        self.main_frame = tk.Frame(self.root, bg=self.bg_dark)
+        self.main_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
         
-        # Title
-        title_label = tk.Label(self.main_frame, text="BACCARAT BOT", font=("Helvetica", 24, "bold"), fg="#ecf0f1", bg="#2c3e50")
-        title_label.pack(pady=10)
+        # Header Row
+        header_frame = tk.Frame(self.main_frame, bg=self.bg_dark)
+        header_frame.pack(fill=tk.X)
         
-        # --- Setup Section ---
-        self.setup_frame = tk.LabelFrame(self.main_frame, text="Bot Setup", fg="#ecf0f1", bg="#2c3e50", font=("Helvetica", 10, "bold"))
-        self.setup_frame.pack(fill=tk.X, pady=10, padx=5)
+        self.unit_name_label = ttk.Label(header_frame, text=self.bot.bot_name if self.bot else "Unit", style="Header.TLabel")
+        self.unit_name_label.pack(side=tk.LEFT)
         
-        self.calib_btn = ttk.Button(self.setup_frame, text="Run Calibration", command=self.start_calibration)
-        self.calib_btn.pack(side=tk.LEFT, padx=10, pady=10)
- 
-        self.next_btn = ttk.Button(self.setup_frame, text="NEXT STEP", command=self.trigger_next_step, state=tk.DISABLED)
-        self.next_btn.pack(side=tk.LEFT, padx=5)
-
-        # Local Mode Label and Switch
-        self.local_mode_frame = tk.Frame(self.setup_frame, bg="#2c3e50")
-        self.local_mode_frame.pack(side=tk.RIGHT, padx=15)
+        # Transparent Status Bar (just text)
+        self.status_frame = tk.Frame(self.main_frame, bg=self.bg_dark)
+        self.status_frame.pack(fill=tk.X, pady=(5, 0))
         
-        tk.Label(
-            self.local_mode_frame, 
-            text="LOCAL MODE", 
-            fg="#f1c40f", 
-            bg="#2c3e50", 
-            font=("Helvetica", 10, "bold")
-        ).pack(side=tk.TOP, pady=(0, 2))
+        self.status_label = ttk.Label(self.status_frame, text="INITIALIZING...", style="Status.TLabel")
+        self.status_label.pack(side=tk.LEFT)
         
-        self.local_switch = ModernSwitch(
-            self.local_mode_frame, 
-            variable=self.local_mode,
-            command=self.on_local_mode_toggle,
-            width=60,
-            height=28
+        # Calibration Progress Button (Hidden by default)
+        self.calib_frame = tk.Frame(self.main_frame, bg=self.bg_dark)
+        self.next_btn = ttk.Button(self.calib_frame, text="NEXT CALIBRATION STEP", command=self.trigger_next_step, state=tk.DISABLED)
+        self.next_btn.pack(pady=10)
+        
+        # Log Section
+        self.log_frame = tk.Frame(self.main_frame, bg=self.bg_dark)
+        # Hidden by default
+        
+        self.log_display = scrolledtext.ScrolledText(
+            self.log_frame, 
+            bg="#111111", 
+            fg="#cccccc", 
+            font=("Consolas", 8),
+            borderwidth=0,
+            highlightthickness=0,
+            padx=5,
+            pady=5,
+            height=10
         )
-        self.local_switch.pack(side=tk.TOP)
+        self.log_display.pack(fill=tk.BOTH, expand=True)
+        self.log_display.config(state=tk.DISABLED)
+        
+        # Load last few lines from log file
+        self.load_past_logs()
+        
+        # Initial log entry
+        self.log_to_gui("--- Session Started ---")
 
-        # --- Bot Configuration ---
-        self.config_frame = tk.LabelFrame(self.main_frame, text="Bot Settings", fg="#ecf0f1", bg="#2c3e50", font=("Helvetica", 10, "bold"))
-        self.config_frame.pack(fill=tk.X, pady=10, padx=5)
-        
-        # Game Mode (Moved to Row 0)
-        tk.Label(self.config_frame, text="Game Mode:", fg="#ecf0f1", bg="#2c3e50").grid(row=0, column=0, sticky=tk.W, padx=10, pady=5)
-        self.game_mode_var = tk.StringVar(value="Classic Baccarat")
-        self.game_mode_combo = ttk.Combobox(self.config_frame, textvariable=self.game_mode_var, values=["Classic Baccarat", "Always 8 Baccarat"], state="readonly")
-        self.game_mode_combo.grid(row=0, column=1, sticky=tk.W, padx=10, pady=5)
+        # Control buttons removed as requested - bot runs on login
 
-        # Base Bet (Moved to Row 1)
-        tk.Label(self.config_frame, text="Base Bet:", fg="#ecf0f1", bg="#2c3e50").grid(row=1, column=0, sticky=tk.W, padx=10, pady=5)
-        self.base_bet_var = tk.StringVar(value="10")
-        self.base_bet_entry = ttk.Entry(self.config_frame, textvariable=self.base_bet_var, width=10)
-        self.base_bet_entry.grid(row=1, column=1, sticky=tk.W, padx=10, pady=5)
-        
-        # Mode (Moved to Row 2)
-        tk.Label(self.config_frame, text="Betting Mode:", fg="#ecf0f1", bg="#2c3e50").grid(row=2, column=0, sticky=tk.W, padx=10, pady=5)
-        self.mode_var = tk.StringVar(value="Sequence")
-        self.mode_combo = ttk.Combobox(self.config_frame, textvariable=self.mode_var, values=["Sequence", "Standard Martingale"], state="readonly")
-        self.mode_combo.grid(row=2, column=1, sticky=tk.W, padx=10, pady=5)
-        self.mode_var.trace_add("write", self.toggle_mode_fields)
+    def get_help_image_path(self, msg):
+        base_dir = "taraccabai"
+        if "betting window is open" in msg: return os.path.join(base_dir, "clickable button.png")
+        if "hover your mouse over BANKER" in msg: return os.path.join(base_dir, "banker.png")
+        if "PLAYER" in msg: return os.path.join(base_dir, "player.png")
+        if "TIE and press" in msg or "over TIE " in msg: return os.path.join(base_dir, "tie.png")
+        if "MAIN STATUS REGION" in msg:
+            return os.path.join(base_dir, "status region 1.png" if "STEP 1" in msg else "status region 2.png")
+        if "TIE STATUS REGION" in msg:
+            return os.path.join(base_dir, "tie status region 1.png" if "STEP 1" in msg else "tie status region 2.png")
+        if "BALANCE" in msg:
+            return os.path.join(base_dir, "balance status 1.png" if "STEP 1" in msg else "balance status 2.png")
+        if "CHIP " in msg:
+            try:
+                # Extracts the value from e.g. "CHIP 10 and press Space"
+                val = msg.split("CHIP ")[1].split(" ")[0]
+                return os.path.join(base_dir, f"chip {val}.png")
+            except: pass
+        return None
 
-        # Pattern
-        self.pattern_label = tk.Label(self.config_frame, text="Pattern:", fg="#ecf0f1", bg="#2c3e50")
-        self.pattern_label.grid(row=3, column=0, sticky=tk.W, padx=10, pady=5)
-        self.pattern_options = ["All P", "All B", "PB", "BP", "PPPB", "BBBP"]
-        self.pattern_var = tk.StringVar(value="PPPB")
-        self.pattern_combo = ttk.Combobox(self.config_frame, textvariable=self.pattern_var, values=self.pattern_options, width=17)
-        self.pattern_combo.grid(row=3, column=1, sticky=tk.W, padx=10, pady=5)
-        
-        # Side (For Standard mode)
-        self.side_label = tk.Label(self.config_frame, text="Bet Side:", fg="#ecf0f1", bg="#2c3e50")
-        self.side_var = tk.StringVar(value="Banker")
-        self.side_combo = ttk.Combobox(self.config_frame, textvariable=self.side_var, values=["Banker", "Player"], state="readonly")
+    def update_info_loop(self):
+        if self.bot:
+            threading.Thread(target=self._perform_bg_sync, daemon=True).start()
+        self.root.after(5000, self.update_info_loop)
 
-        # Strategy (Tank, Sweeper, etc.)
-        tk.Label(self.config_frame, text="Strategy:", fg="#ecf0f1", bg="#2c3e50").grid(row=4, column=0, sticky=tk.W, padx=10, pady=5)
-        self.strategy_var = tk.StringVar(value="Standard")
-        self.strategy_combo = ttk.Combobox(self.config_frame, textvariable=self.strategy_var, values=["Standard", "Tank", "Sweeper", "Burst"], state="readonly")
-        self.strategy_combo.grid(row=4, column=1, sticky=tk.W, padx=10, pady=5)
-        self.strategy_var.trace_add("write", self.on_strategy_change)
+    def _perform_bg_sync(self):
+        try:
+            # Let the bot's internal push_monitoring_update handle all status decisions
+            self.bot.push_monitoring_update()
+            self.root.after(0, self._update_ui_state)
+        except Exception:
+            pass
 
-        # Target Profit %
-        tk.Label(self.config_frame, text="Target Profit %:", fg="#ecf0f1", bg="#2c3e50").grid(row=5, column=0, sticky=tk.W, padx=10, pady=5)
-        self.target_pct_var = tk.StringVar(value="10") # Default to 10%
-        self.target_pct_entry = ttk.Entry(self.config_frame, textvariable=self.target_pct_var, width=10)
-        self.target_pct_entry.grid(row=5, column=1, sticky=tk.W, padx=10, pady=5)
-
-        # Max Martingale Level
-        tk.Label(self.config_frame, text="Max Martingale Level:", fg="#ecf0f1", bg="#2c3e50").grid(row=6, column=0, sticky=tk.W, padx=10, pady=5)
-        self.max_level_var = tk.StringVar(value="10")
-        self.max_level_entry = ttk.Entry(self.config_frame, textvariable=self.max_level_var, width=10)
-        self.max_level_entry.grid(row=6, column=1, sticky=tk.W, padx=10, pady=5)
-
-        # Initial Toggle
-        self.toggle_mode_fields()
-
-        # --- Remote Settings (Website) ---
-        self.remote_frame = tk.LabelFrame(self.main_frame, text="Remote Settings (Website)", fg="#f1c40f", bg="#2c3e50", font=("Helvetica", 10, "bold"))
-        self.remote_frame.pack(fill=tk.X, pady=10, padx=5)
+    def _update_ui_state(self):
+        if not self.bot: return
         
-        # Grid for remote settings
-        self.remote_labels = {}
-        fields = [
-            ("Base Bet:", "bet"),
-            ("Pattern:", "pattern"),
-            ("Strategy:", "strategy"),
-            ("Target %:", "target_profit"),
-            ("Game Mode:", "mode"),
-            ("Bot Status:", "command")
-        ]
-        
-        for i, (label_text, key) in enumerate(fields):
-            tk.Label(self.remote_frame, text=label_text, fg="#ecf0f1", bg="#2c3e50").grid(row=i//2, column=(i%2)*2, sticky=tk.W, padx=10, pady=2)
-            val_lbl = tk.Label(self.remote_frame, text="---", fg="#f1c40f", bg="#2c3e50", font=("Helvetica", 10, "bold"))
-            val_lbl.grid(row=i//2, column=(i%2)*2+1, sticky=tk.W, padx=5, pady=2)
-            self.remote_labels[key] = val_lbl
-
-        # --- Logs ---
-        log_frame = tk.LabelFrame(self.main_frame, text="Bot Logs", fg="#ecf0f1", bg="#2c3e50", font=("Helvetica", 10, "bold"))
-        log_frame.pack(fill=tk.BOTH, expand=True, pady=10, padx=5)
-        
-        self.log_area = scrolledtext.ScrolledText(log_frame, state='disabled', height=10, bg="#34495e", fg="#ecf0f1", font=("Consolas", 9))
-        self.log_area.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        # Redirect logger to GUI
-        self.setup_logging()
-
-        # --- Controls ---
-        cntrl_frame = tk.Frame(self.main_frame, bg="#2c3e50")
-        cntrl_frame.pack(fill=tk.X, pady=10)
-        
-        self.start_btn = tk.Button(cntrl_frame, text="START BOT", command=self.start_bot_thread, bg="#27ae60", fg="white", font=("Helvetica", 12, "bold"), width=15)
-        self.start_btn.pack(side=tk.LEFT, expand=True, padx=5)
-        
-        self.stop_btn = tk.Button(cntrl_frame, text="STOP BOT", command=self.stop_bot, state=tk.DISABLED, bg="#c0392b", fg="white", font=("Helvetica", 12, "bold"), width=15)
-        self.stop_btn.pack(side=tk.LEFT, expand=True, padx=5)
-        
-        self.test_btn = tk.Button(cntrl_frame, text="TEST CLICKS", command=self.test_bot_clicks, bg="#2980b9", fg="white", font=("Helvetica", 12, "bold"), width=15)
-        self.test_btn.pack(side=tk.LEFT, expand=True, padx=5)
-        
-        self.enable_bot_controls()
-        self.on_local_mode_toggle() # Initialize visibility based on default (False)
-
-    def setup_logging(self):
-        # Override logger.log to also write to our log_area
-        original_log = logger.log
-        
-        def gui_log(message, level="INFO"):
-            original_log(message, level)
-            self.root.after(0, self.append_log, f"[{level}] {message}")
+        # Use NIG-01 as the ultimate fallback if everything else is generic
+        display_name = self.bot.bot_name
+        if not display_name or display_name == "Unit":
+            display_name = "NIG-001"
             
-        logger.log = gui_log
-
-    def append_log(self, text):
-        self.log_area.configure(state='normal')
-        self.log_area.insert(tk.END, text + "\n")
-        self.log_area.see(tk.END)
-        self.log_area.configure(state='disabled')
-
-
+        self.unit_name_label.config(text=display_name)
+        
+        credits_val = self.bot.credits if self.bot.credits is not None else 0
+        cmd_active = self.bot.remote_command
+        
+        # 1. Critical Errors / Blocking conditions
+        if self.bot.needs_calibration():
+            self.status_label.config(text="NEEDS CALIBRATION", foreground="#f39c12")
+        elif credits_val < 1:
+            self.status_label.config(text="NO CREDITS", foreground="#f39c12")
+        elif self.bot.status == "BURNED":
+            self.status_label.config(text="NO BALANCE", foreground="#c0392b") # Red
+            
+        # 2. Operational States
+        elif cmd_active and self.is_running and self.bot.running:
+            # Both thread is alive AND website says RUN AND bot engine is active
+            self.status_label.config(text="RUNNING", foreground="#2ecc71") # Green
+        elif self.bot.status == "Stopped":
+            # Bot was manually stopped from website
+            self.status_label.config(text="STOPPED", foreground="#c0392b") # Red
+        else:
+            # Default standby state
+            self.status_label.config(text="CONNECTED", foreground="#1abc9c") # Blue Green
 
     def start_calibration(self):
-        if messagebox.askyesno("Calibration", "Calibration instructions will appear in the Bot Logs.\nUse SPACE or the NEXT STEP button to capture points.\nContinue?"):
+        from tkinter import simpledialog
+        pwd = simpledialog.askstring("Password", "Enter calibration password:", show='*')
+        if pwd is None:
+            return
+        if pwd != "akhlys11":
+            messagebox.showerror("Error", "Incorrect password")
+            return
+
+        if messagebox.askyesno("Calibration", "Calibration started.\nUse SPACE or the NEXT STEP button to capture points.\nContinue?"):
+            self.root.geometry("325x500") # Expand window for calibration
             self.is_calibrating = True
-            self.calib_btn.config(state=tk.DISABLED)
+            
+            # --- POPUP UI ---
+            self.calib_popup = tk.Toplevel(self.root)
+            self.calib_popup.title("BT - CALIBRATION INSTRUCTION")
+            self.calib_popup.geometry("400x150")
+            self.calib_popup.attributes("-topmost", True)
+            self.calib_popup.configure(bg="#2c3e50")
+            
+            self.pop_header = tk.Label(self.calib_popup, text="CALIBRATION STEP", font=("Helvetica", 14, "bold"), fg="#3498db", bg="#2c3e50")
+            self.pop_header.pack(pady=(10, 5))
+            
+            self.pop_instr = tk.Label(self.calib_popup, text="Initializing...", font=("Helvetica", 12), fg="white", bg="#2c3e50", wraplength=350, justify=tk.CENTER)
+            self.pop_instr.pack(pady=5, padx=10)
+            
+            self.pop_hint = tk.Label(self.calib_popup, text="Press SPACE/NEXT when ready.", font=("Helvetica", 10, "italic"), fg="#95a5a6", bg="#2c3e50")
+            self.pop_hint.pack(pady=5)
+            
+            # Help Image Label
+            self.pop_image_lbl = tk.Label(self.calib_popup, bg="#2c3e50")
+            self.pop_image_lbl.pack(pady=5)
+            
+            self.calib_frame.pack(pady=10)
+            self.log_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
             self.next_btn.config(state=tk.NORMAL)
             self.calib_event.clear()
             threading.Thread(target=self.run_calibration, daemon=True).start()
@@ -293,190 +249,107 @@ class BaccaratGUI:
 
     def run_calibration(self):
         def gui_waiter(msg):
+            # Update labels with the full instruction
+            self.root.after(0, lambda: self.status_label.config(text=msg.upper(), foreground="#f1c40f"))
+            
+            # Update the Floating Popup
+            if self.calib_popup and self.calib_popup.winfo_exists():
+                self.root.after(0, lambda: self.pop_instr.config(text=msg))
+                # Update Image
+                img_path = self.get_help_image_path(msg)
+                if img_path and os.path.exists(img_path):
+                    try:
+                        img = Image.open(img_path)
+                        img.thumbnail((350, 200)) # Resize for popup
+                        photo = ImageTk.PhotoImage(img)
+                        def update_img(p):
+                            self.pop_image_lbl.config(image=p)
+                            self.pop_image_lbl.image = p # Keep reference
+                            # Adjust popup size based on image
+                            if self.calib_popup and self.calib_popup.winfo_exists():
+                                self.calib_popup.geometry("400x450")
+                        self.root.after(0, lambda: update_img(photo))
+                    except Exception as e:
+                        logger.log(f"Image load error: {e}", "DEBUG")
+                else:
+                    self.root.after(0, lambda: self.pop_image_lbl.config(image=""))
+            
             self.calib_event.clear()
-            # Wait for event to be set
             self.calib_event.wait()
             self.calib_event.clear()
 
         try:
-            logger.log("CALIBRATION STARTED: Watch the logs for instructions.", "WARNING")
-            
-            # Use 50 as min chip if Always 8 is selected
-            min_chip = 50 if self.game_mode_var.get() == "Always 8 Baccarat" else 10
-            
+            game_mode = self.bot.game_mode if self.bot else "Classic Baccarat"
+            min_chip = 50 if game_mode == "Always 8 Baccarat" else 10
             calibration.main(wait_func=gui_waiter, min_chip=min_chip)
-            logger.log("CALIBRATION FINISHED", "SUCCESS")
-            self.root.after(0, lambda: messagebox.showinfo("Success", "Calibration complete!"))
+            
+            # Restore status label after success
+            self.root.after(0, lambda: self.status_label.config(text="CALIBRATION SUCCESS", foreground="#27ae60"))
+            
+            # Close Popup
+            if self.calib_popup and self.calib_popup.winfo_exists():
+                self.root.after(0, self.calib_popup.destroy)
+            
+            # Refresh configuration without restart
+            if self.bot:
+                self.bot.config = self.bot.load_config()
+                self.bot.sb_config = self.bot.config.get('supabase', {})
+                
+            self.root.after(0, lambda: messagebox.showinfo("Success", "Calibration complete! No need to restart."))
         except Exception as e:
-            logger.log(f"Calibration Error: {e}", "ERROR")
             self.root.after(0, lambda: messagebox.showerror("Error", f"Calibration failed: {e}"))
         finally:
             self.is_calibrating = False
-            self.root.after(0, lambda: self.calib_btn.config(state=tk.NORMAL))
             self.root.after(0, lambda: self.next_btn.config(state=tk.DISABLED))
-
-    def toggle_mode_fields(self, *args):
-        mode = self.mode_var.get()
-        if mode == "Standard Martingale":
-            self.pattern_label.grid_remove()
-            self.pattern_combo.grid_remove()
-            self.side_label.grid(row=3, column=0, sticky=tk.W, padx=10, pady=5)
-            self.side_combo.grid(row=3, column=1, sticky=tk.W, padx=10, pady=5)
-        else:
-            self.side_label.grid_remove()
-            self.side_combo.grid_remove()
-            self.pattern_label.grid(row=3, column=0, sticky=tk.W, padx=10, pady=5)
-            self.pattern_combo.grid(row=3, column=1, sticky=tk.W, padx=10, pady=5)
-
-    def on_local_mode_toggle(self):
-        is_local = self.local_mode.get()
-        if is_local:
-            self.config_frame.config(text="Bot Settings (Local)")
-            self.config_frame.pack(fill=tk.X, pady=10, padx=5, after=self.setup_frame)
-            # Gray out remote settings
-            for label in self.remote_labels.values():
-                label.config(fg="#7f8c8d")
-            logger.log("Local Mode ENABLED: Ignoring website commands.", "WARNING")
-        else:
-            self.config_frame.config(text="Bot Settings")
-            self.config_frame.pack_forget()
-            # Restore remote settings color
-            for label in self.remote_labels.values():
-                label.config(fg="#f1c40f")
-            logger.log("Local Mode DISABLED: Listening to website commands.", "INFO")
-        
-        if hasattr(self, 'bot') and self.bot:
-            self.bot.local_mode = is_local
-        
-        if hasattr(self, 'local_switch'):
-            self.local_switch.draw()
-
-    def enable_bot_controls(self):
-        self.start_btn.config(state=tk.NORMAL)
-        self.base_bet_entry.config(state=tk.NORMAL)
-        self.pattern_combo.config(state="normal")
-        self.mode_combo.config(state="readonly")
-
-    def on_strategy_change(self, *args):
-        """Automatically set defaults when Burst strategy is selected."""
-        if self.strategy_var.get() == "Burst":
-            self.base_bet_var.set("90")
-            self.max_level_var.set("3")
-            logger.log("Burst Strategy selected: Auto-set Base Bet to 90 and Max Level to 3.", "INFO")
+            self.root.after(0, lambda: self.calib_frame.pack_forget())
+            self.root.after(0, lambda: self.log_frame.pack_forget())
+            self.root.after(0, lambda: self.root.geometry("325x150")) # Shrink window back
 
     def initialize_bot_instance(self):
-        """Creates the initial bot instance for monitoring/registration."""
         try:
-            self.bot = Bot(on_settings_sync=self.update_remote_settings_display)
-            logger.log(f"Bot Registered as ID: {self.bot.bot_id}", "SUCCESS")
+            self.bot = Bot(on_settings_sync=self.update_remote_settings_display, user_auth_id=self.user_auth_id)
         except Exception as e:
-            logger.log(f"Startup Monitoring Error: {e}", "DEBUG")
+            logger.log(f"Startup Error: {e}", "DEBUG")
             self.bot = None
 
     def update_remote_settings_display(self, remote_data):
-        """Callback to update GUI with remote settings."""
-        if not hasattr(self, 'remote_labels'): return
-        
-        def update():
-            for key, label in self.remote_labels.items():
-                if key == 'command':
-                    # command = true means RUNNING, false means STOPPED
-                    val = remote_data.get('command')
-                    if val is True or str(val).lower() in ['true', 'run', 'start', '1']:
-                        status = "RUNNING"
-                    else:
-                        status = "STOPPED"
-                    label.config(text=status)
-                else:
-                    val = remote_data.get(key)
-                    if val is not None:
-                        label.config(text=str(val))
-                    
-        self.root.after(0, update)
+        # Engine handles sync; UI can use this for specific notifications if needed
+        pass
 
     def start_bot_thread(self):
-        base_bet = self.base_bet_var.get()
-        if not base_bet.isdigit():
-            messagebox.showerror("Input Error", "Base Bet must be a number.")
-            return
-            
-        pattern = self.pattern_var.get().strip()
-        # Map descriptive labels to actual logic
-        if pattern.upper() == "ALL P": pattern = "P"
-        elif pattern.upper() == "ALL B": pattern = "B"
-        
-        if not pattern:
-            messagebox.showerror("Input Error", "Pattern cannot be empty.")
-            return
-
-        target_pct = None
-        pct_val = self.target_pct_var.get().strip()
-        if pct_val:
-            try:
-                target_pct = float(pct_val)
-            except ValueError:
-                messagebox.showerror("Input Error", "Target Profit % must be a number.")
-                return
-
-        max_level = self.max_level_var.get()
-        if not max_level.isdigit():
-            messagebox.showerror("Input Error", "Max Martingale Level must be a number.")
-            return
-
-        reset_on_cycle = (self.mode_var.get() == "Sequence")
-        
-        if self.mode_var.get() == "Standard Martingale":
-            pattern = "B" if self.side_var.get() == "Banker" else "P"
-            reset_on_cycle = False
-
-        # Update existing bot instance or create if failed earlier
+        if self.is_running: return 
         if not self.bot:
             self.initialize_bot_instance()
-            
         if self.bot:
-            self.bot.base_bet = int(base_bet)
-            self.bot.current_bet = self.bot.base_bet
-            self.bot.game_mode = self.game_mode_var.get()
-            self.bot.betting_mode = self.mode_var.get()
-            self.bot.session_lost_amount = 0 # Reset on start
-            self.bot.pattern = pattern.upper().replace("-", "").replace(" ", "")
-            self.bot.reset_on_cycle = reset_on_cycle
-            self.bot.target_percentage = target_pct
-            self.bot.max_level = int(max_level)
-            self.bot.strategy = self.strategy_var.get()
+            self.bot.session_lost_amount = 0
             self.bot.pattern_index = 0
             self.bot.martingale_level = 0
-            self.bot.last_result = None # Force first hand to be baseline
+            self.bot.last_result = None
             self.bot.first_run = True
-            self.bot.starting_balance = None # Reset for new session
+            self.bot.starting_balance = None
             self.bot.target_balance = None
-            self.bot.start_time = time.time() # RESET CLOCK ON GUI START
+            self.bot.start_time = time.time()
+            self.bot.can_restart = True # Manual start clears burned block
+            logger.log(f"Auto-Start initialized. Syncing with remote command...", "INFO")
         
         self.is_running = True
-        self.start_btn.config(state=tk.DISABLED)
-        self.stop_btn.config(state=tk.NORMAL)
-        
         self.bot_thread = threading.Thread(target=self.run_bot, daemon=True)
         self.bot_thread.start()
 
     def run_bot(self):
         try:
             self.bot.running = True
-            logger.log(f"Bot session active. Listening for commands...", "INFO")
-            
-            # The 'is_running' flag is controlled by the GUI START/STOP buttons.
-            # The 'bot.running' flag is controlled by remote Supabase commands.
             while self.is_running:
-                if self.bot.running:
-                    # Run a single cycle of the bot logic
-                    self.bot.run_cycle()
-                else:
-                    # IDLE MODE: Bot is stopped remotely, but the thread is still listening
-                    # We check Supabase every 5 seconds to see if 'RUN' is sent back
-                    if time.time() - self.bot.last_sync_time > 5:
-                        self.bot.push_monitoring_update(status="Idle")
-                    time.sleep(1)
-
+                if self.bot.credits < 1:
+                    self.bot.push_monitoring_update(status="No Credits")
+                    time.sleep(5)
+                    continue
+                if not self.bot.remote_command:
+                    # In standby (Connected), update monitoring periodically
+                    self.bot.push_monitoring_update()
+                    time.sleep(5)
+                    continue
+                self.bot.run_cycle()
         except Exception as e:
             logger.log(f"Bot Internal Error: {e}", "ERROR")
             self.is_running = False
@@ -486,25 +359,89 @@ class BaccaratGUI:
     def stop_bot(self):
         self.is_running = False
         if self.bot:
-            self.bot.running = False
-            self.bot.push_monitoring_update(status="Stopped")
-        logger.log("Stopping bot...", "INFO")
+            self.bot.stop_remotely("Stopped")
+
+    def handle_logout(self):
+        """Clears the session and returns to login."""
+        if messagebox.askyesno("Logout", "Are you sure you want to log out?"):
+            self.stop_bot()
+            
+            # Clear remembered session from config
+            try:
+                from utils import find_resource
+                import json
+                config_path = find_resource("config.json")
+                if os.path.exists(config_path):
+                    with open(config_path, "r") as f:
+                        config = json.load(f)
+                    
+                    if "supabase" in config:
+                        config["supabase"]["remembered_auth_id"] = None
+                        
+                        with open(config_path, "w") as f:
+                            json.dump(config, f, indent=2)
+            except Exception as e:
+                print(f"Failed to clear session during logout: {e}")
+
+            if self.on_logout:
+                self.on_logout()
+
+    def on_closing(self):
+        """Called when the window is closed or Exit is clicked."""
+        if self.bot:
+            # If we are BURNED, don't overwrite with "Inactive" to keep it persistent on website
+            if self.bot.status == "BURNED":
+                 self.root.destroy()
+                 return
+            
+            # For normal exit, show "Inactive" on the website
+            self.is_running = False
+            self.bot.push_monitoring_update(status="Inactive")
+
+        # Small delay to allow final network request to finish
+        self.root.after(1000, self.root.destroy)
+
+    def toggle_logs(self):
+        """Show or hide the log output and resize the window."""
+        if self.log_frame.winfo_ismapped():
+            self.log_frame.pack_forget()
+            self.root.geometry("325x150") # Snap back to compact height
+        else:
+            self.log_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
+            self.root.geometry("325x450") # Expand to show logs
+            self.root.update_idletasks() # Ensure UI refresh
 
     def on_bot_stopped(self):
-        self.start_btn.config(state=tk.NORMAL)
-        self.stop_btn.config(state=tk.DISABLED)
-        logger.log("Bot stopped.", "INFO")
+        # Auto-restart logic or notifications can go here
+        pass
 
-    def test_bot_clicks(self):
-        if self.is_running:
-            messagebox.showwarning("Busy", "Cannot test clicks while bot is running.")
-            return
-            
-        if not self.bot:
-            self.initialize_bot_instance()
-            
-        if self.bot:
-            threading.Thread(target=self.bot.execute_test_bet, daemon=True).start()
+    def log_to_gui(self, message):
+        """Append a message to the log display in a thread-safe way."""
+        if hasattr(self, 'log_display'):
+            self.root.after(0, self._append_log, message)
+
+    def _append_log(self, message):
+        self.log_display.config(state=tk.NORMAL)
+        self.log_display.insert(tk.END, f"{message}\n")
+        self.log_display.see(tk.END)
+        self.log_display.config(state=tk.DISABLED)
+
+    def load_past_logs(self, lines=20):
+        """Loads the last N lines from the automation_log.txt file."""
+        log_file = "automation_log.txt"
+        if os.path.exists(log_file):
+            try:
+                with open(log_file, "r", encoding="utf-8", errors="ignore") as f:
+                    all_lines = f.readlines()
+                    last_lines = all_lines[-lines:]
+                    self.log_display.config(state=tk.NORMAL)
+                    for line in last_lines:
+                        self.log_display.insert(tk.END, line)
+                    self.log_display.see(tk.END)
+                    self.log_display.config(state=tk.DISABLED)
+            except Exception as e:
+                self.log_to_gui(f"Error loading past logs: {e}")
+
 
 if __name__ == "__main__":
     root = tk.Tk()

@@ -4,17 +4,19 @@ import json
 import os
 import numpy as np
 from PIL import Image
+from utils import find_resource
 
 def test_ocr():
     # Setup Tesseract path
     pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
     
     # Load config
-    if not os.path.exists('config.json'):
+    config_path = find_resource('config.json')
+    if not os.path.exists(config_path):
         print("Config file not found!")
         return
         
-    with open('config.json', 'r') as f:
+    with open(config_path, 'r') as f:
         config = json.load(f)
     
     print("--- Starting OCR Debugging ---")

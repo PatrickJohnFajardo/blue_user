@@ -1,0 +1,13 @@
+{
+  "target_a": {},
+  "target_b": {},
+  "target_c": {},
+  "status_region_main": {},
+  "status_region_tie": {},
+  "status_region_balance": {},
+  "chips": {},
+  "supabase": {
+    "url": "https://pfoxlnlqjeibqxmgsohn.supabase.co",
+    "key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBmb3hsbmxxamVpYnF4bWdzb2huIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDM2OTIyNiwiZXhwIjoyMDg1OTQ1MjI2fQ.zNgr0_KuGNPtXDc5VMyvnASFuy3w-aafnJHBVDM-kKU"
+  }
+}

@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image, ImageOps
 import requests
 import math
-from utils import logger, get_hwid
+from utils import logger, get_hwid, find_resource
 
 # Configuration for Tesseract
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
@@ -26,8 +26,11 @@ MODE_DB_TO_BOT = {"Classic": "Classic Baccarat", "classic": "Classic Baccarat", 
 MODE_BOT_TO_DB = {"Classic Baccarat": "Classic", "Always 8 Baccarat": "Always 8"}
 
 class Bot:
-    def __init__(self, config_file='config.json', pattern_string='B', base_bet=10, reset_on_cycle=True, target_percentage=None, max_level=10, strategy="Standard", on_settings_sync=None):
-        self.config_file = config_file
+    def __init__(self, config_file='config.json', pattern_string='PPPB', base_bet=10, reset_on_cycle=True, target_percentage=0.0, max_level=12, strategy="Standard", on_settings_sync=None, user_auth_id=None):
+        self.user_auth_id = user_auth_id
+        self.user_db_id = None
+        self.user_franchise_id = None
+        self.config_file = find_resource(config_file)
         self.config = self.load_config()
         self.on_settings_sync = on_settings_sync
         self.running = False
@@ -46,9 +49,18 @@ class Bot:
         self.game_mode = "Classic Baccarat"
         self._network_failures = 0  # Track consecutive network failures
         self._total_hands_played = 0 # Track hands since start
-        self._balance_check_cache = [] # For consistency checking
         self.betting_mode = "Sequence"
         self.session_lost_amount = 0 # Track accumulated loss for specific recovery modes
+        self.franchise_name = "Baccarat Bot"
+        self.bot_name = "Unit"
+        self.credits = 0
+        self.remote_command = False
+        self.connection_status = "OK" # "OK" or "FAIL"
+        self.bot_id = None
+        self.state_file = find_resource('bot_state.json')
+        self.status = "Connected"
+        self.can_restart = True
+        
         
         # Strategy Multipliers (Transitions from Level 1 up to Level 10)
         self.strategies = {
@@ -76,6 +88,8 @@ class Bot:
         # Monitoring Settings
         self.sb_config = self.config.get('supabase', {})
         self.martingale_level = 0
+        self.bet_placed_this_round = False
+        self.last_outcome_time = time.time()
         
         # Handle Bot Identity (find or create bot row in DB)
         self.handle_bot_identity()
@@ -98,8 +112,57 @@ class Bot:
         except Exception as e:
             logger.log(f"Failed to save config: {e}", "ERROR")
 
+    def save_state(self):
+        """Persists play state for recovery after network/power loss."""
+        if not self.bot_id: return
+        state = {
+            "bot_id": self.bot_id,
+            "pattern_index": self.pattern_index,
+            "martingale_level": self.martingale_level,
+            "current_bet": self.current_bet,
+            "last_result": self.last_result,
+            "total_hands_played": self._total_hands_played,
+            "session_lost_amount": self.session_lost_amount,
+            "bet_placed": self.bet_placed_this_round,
+            "last_outcome_time": self.last_outcome_time,
+            "timestamp": time.time()
+        }
+        try:
+            with open(self.state_file, 'w') as f:
+                json.dump(state, f)
+        except:
+            pass
+
+    def load_state(self):
+        """Loads persistent play state if it exists and matches current bot_id."""
+        if not os.path.exists(self.state_file): return
+        try:
+            with open(self.state_file, 'r') as f:
+                state = json.load(f)
+            
+            # Only resume if it's for the same bot
+            if state.get("bot_id") == self.bot_id:
+                self.pattern_index = state.get("pattern_index", 0)
+                self.martingale_level = state.get("martingale_level", 0)
+                self.current_bet = state.get("current_bet", self.base_bet)
+                self.last_result = state.get("last_result")
+                self._total_hands_played = state.get("total_hands_played", 0)
+                self.session_lost_amount = state.get("session_lost_amount", 0)
+                self.bet_placed_this_round = state.get("bet_placed", False)
+                self.last_outcome_time = state.get("last_outcome_time", time.time())
+                self.first_run = False # Resume skip logic
+                logger.log(f"RECOVERY: Resuming from Level {self.martingale_level}, Bet {self.current_bet}.", "SUCCESS")
+        except:
+            pass
+
+    def clear_state(self):
+        """Removes the state file when a session is cleanly finished or stopped manually."""
+        if os.path.exists(self.state_file):
+            try: os.remove(self.state_file)
+            except: pass
+
     def handle_bot_identity(self):
-        """Finds or creates a bot row in the Supabase 'bot' table."""
+        """Finds or creates a bot row in the Supabase 'bot' table using deterministic HWID."""
         self.sb_config = self.config.get('supabase', {})
         self.bot_id = self.sb_config.get('bot_id', '')
         self.sb_url = self.sb_config.get('url')
@@ -115,69 +178,170 @@ class Bot:
             "Content-Type": "application/json",
         }
         
-        # 1. If we already have a bot_id, verify it exists
+        # --- NEW: Get user_db_id from public.user_account if logged in ---
+        if self.user_auth_id:
+            try:
+                # 1. Check user_account table
+                user_url = f"{self.sb_url}/rest/v1/user_account?auth_id=eq.{self.user_auth_id}&select=id,franchise_id"
+                u_resp = requests.get(user_url, headers=headers, timeout=5)
+                if u_resp.status_code == 200 and u_resp.json():
+                    u_data = u_resp.json()[0]
+                    self.user_db_id = u_data.get('id')
+                    self.user_franchise_id = u_data.get('franchise_id')
+                    logger.log(f"Linked to User Account: {self.user_db_id} (Franchise: {self.user_franchise_id})", "DEBUG")
+                
+                # 2. If not found, check franchise table (Franchise owner case)
+                if not self.user_franchise_id:
+                    f_owner_url = f"{self.sb_url}/rest/v1/franchise?auth_id=eq.{self.user_auth_id}&select=id"
+                    f_resp = requests.get(f_owner_url, headers=headers, timeout=5)
+                    if f_resp.status_code == 200 and f_resp.json():
+                        self.user_franchise_id = f_resp.json()[0].get('id')
+                        logger.log(f"Linked as Franchise Owner (Franchise: {self.user_franchise_id})", "DEBUG")
+
+            except Exception as e:
+                logger.log(f"Account lookup error: {e}", "DEBUG")
+
+        # --- AUTO-NAMING LOGIC ---
+        suggested_unit_name = "NIG-001"
+        if self.user_franchise_id:
+            try:
+                # 1. Get Franchise Code
+                f_url = f"{self.sb_url}/rest/v1/franchise?id=eq.{self.user_franchise_id}&select=code"
+                f_resp = requests.get(f_url, headers=headers, timeout=5)
+                f_code = "NIG"
+                if f_resp.status_code == 200 and f_resp.json():
+                    f_code = f_resp.json()[0].get('code') or "NIG"
+                
+                # 2. Count existing units in this franchise
+                # Use count=exact header to get the total number of bots for this franchise
+                c_headers = {**headers, "Prefer": "count=exact"}
+                c_url = f"{self.sb_url}/rest/v1/bot?franchise_id=eq.{self.user_franchise_id}&select=id"
+                c_resp = requests.get(c_url, headers=c_headers, timeout=5)
+                
+                total_units = 0
+                if c_resp.status_code in [200, 206]:
+                    content_range = c_resp.headers.get("Content-Range", "0-0/0")
+                    total_units = int(content_range.split("/")[-1])
+                
+                # 3. Determine next index (Limit to 999)
+                next_idx = min(total_units + 1, 999)
+                suggested_unit_name = f"{f_code}-{next_idx:03d}"
+                logger.log(f"Auto-naming: Suggested Name {suggested_unit_name} (Units: {total_units})", "DEBUG")
+            except Exception as e:
+                logger.log(f"Auto-naming error: {e}", "DEBUG")
+
+        current_hwid = get_hwid()
+        
+        # --- PHASE 1: Try to find bot by current_hwid (GUID) AND franchise_id ---
+        if self.user_franchise_id:
+            try:
+                # Search for a bot record that matches this machine AND this franchise
+                url = f"{self.sb_url}/rest/v1/bot?guid=eq.{current_hwid}&franchise_id=eq.{self.user_franchise_id}&select=*,franchise:franchise_id(investor_name,credits,code)"
+                resp = requests.get(url, headers=headers, timeout=5)
+                
+                if resp.status_code == 400:
+                    url_simple = f"{self.sb_url}/rest/v1/bot?guid=eq.{current_hwid}&franchise_id=eq.{self.user_franchise_id}&select=*"
+                    resp = requests.get(url_simple, headers=headers, timeout=5)
+                
+                logger.log(f"Phase 1 Lookup (GUID {current_hwid}, Franchise {self.user_franchise_id}): {resp.status_code}", "DEBUG")
+
+                if resp.status_code == 200 and resp.json():
+                    data = resp.json()[0]
+                    self.bot_id = data['id']
+                    self.bot_name = data.get('unit_name') or "Unit"
+                    
+                    # Robust Update: Ensure bot is pinned to current user
+                    updates = {}
+                    if self.user_db_id and data.get('user_id') != self.user_db_id:
+                        updates["user_id"] = self.user_db_id
+                    
+                    # If the name is generic "Unit", try to suggest a better one
+                    if self.bot_name == "Unit":
+                        self.bot_name = suggested_unit_name
+                        updates["unit_name"] = self.bot_name
+                        logger.log(f"Assigned Auto-name to Bot {self.bot_id}: {self.bot_name}", "INFO")
+
+                    if updates:
+                        patch_url = f"{self.sb_url}/rest/v1/bot?id=eq.{self.bot_id}"
+                        requests.patch(patch_url, headers=headers, json=updates, timeout=5)
+
+                    franchise = data.get('franchise') if isinstance(data.get('franchise'), dict) else None
+                    self.franchise_name = franchise.get('investor_name') if franchise else "Baccarat Bot"
+                    self.credits = franchise.get('credits') if franchise and franchise.get('credits') is not None else 0
+
+                    logger.log(f"Bot linked by machine and franchise: {self.bot_id} ({self.bot_name})", "SUCCESS")
+                    self._save_bot_id()
+                    self.load_state() 
+                    return
+            except Exception as e:
+                logger.log(f"GUID/Franchise lookup error: {e}", "DEBUG")
+
+        # --- PHASE 2: Fallback — Try to find bot by legacy bot_id from config ---
         if self.bot_id:
             try:
-                url = f"{self.sb_url}/rest/v1/bot?id=eq.{self.bot_id}&select=id"
+                url = f"{self.sb_url}/rest/v1/bot?id=eq.{self.bot_id}&select=*,franchise:franchise_id(investor_name,credits,code)"
                 resp = requests.get(url, headers=headers, timeout=5)
+                
+                if resp.status_code == 400:
+                    url_simple = f"{self.sb_url}/rest/v1/bot?id=eq.{self.bot_id}&select=*"
+                    resp = requests.get(url_simple, headers=headers, timeout=5)
+
+                logger.log(f"Phase 2 Lookup (ID {self.bot_id}): {resp.status_code}", "DEBUG")
                 if resp.status_code == 200 and resp.json():
-                    logger.log(f"Bot identity confirmed: {self.bot_id}", "INFO")
-                    return
-                else:
-                    logger.log(f"Bot ID {self.bot_id} not found in DB. Creating new one...", "WARNING")
-                    self.bot_id = ''
+                    data = resp.json()[0]
+                    
+                    # Only reuse this bot_id if it belongs to the same franchise
+                    # OR if we don't have a franchise yet (legacy/anonymous)
+                    if not self.user_franchise_id or data.get('franchise_id') == self.user_franchise_id:
+                        if not data.get('guid') or data.get('guid') != current_hwid:
+                            patch_url = f"{self.sb_url}/rest/v1/bot?id=eq.{self.bot_id}"
+                            requests.patch(patch_url, headers=headers, json={"guid": current_hwid}, timeout=5)
+                        
+                        self.bot_name = data.get('unit_name') or suggested_unit_name
+                        
+                        updates = {}
+                        if self.user_db_id and data.get('user_id') != self.user_db_id:
+                            updates["user_id"] = self.user_db_id
+                        if not data.get('unit_name') or data.get('unit_name') == "Unit":
+                            updates["unit_name"] = self.bot_name
+                        
+                        if updates:
+                            patch_url = f"{self.sb_url}/rest/v1/bot?id=eq.{self.bot_id}"
+                            requests.patch(patch_url, headers=headers, json=updates, timeout=5)
+
+                        franchise = data.get('franchise')
+                        if isinstance(franchise, dict):
+                            self.franchise_name = franchise.get('investor_name') or "Baccarat Bot"
+                            self.credits = franchise.get('credits') if franchise.get('credits') is not None else 0
+                        
+                        logger.log(f"Bot identity confirmed: {self.bot_id} ({self.bot_name})", "INFO")
+                        self.load_state()
+                        return
+                    else:
+                        logger.log(f"Cached Bot ID {self.bot_id} belongs to a different franchise. Ignoring.", "WARNING")
+                        self.bot_id = None # Clear it so we create a new one for this franchise
             except Exception as e:
                 logger.log(f"Bot ID verification error: {e}", "DEBUG")
-                return
 
-        # 2. Try to find via GUID → unit → user → bot chain
-        current_hwid = get_hwid()
+        # --- PHASE 3: Not found — Create a new bot record ---
         try:
-            # Look up unit by GUID
-            url = f"{self.sb_url}/rest/v1/units?guid=eq.{current_hwid}&select=id"
-            resp = requests.get(url, headers=headers, timeout=5)
-            unit_id = None
-            user_id = None
-            
-            if resp.status_code == 200 and resp.json():
-                unit_id = resp.json()[0]['id']
-                logger.log(f"Found unit for this machine: {unit_id}", "INFO")
-                
-                # Look up user_account by unit_id
-                url = f"{self.sb_url}/rest/v1/user_account?unit_id=eq.{unit_id}&select=id"
-                resp = requests.get(url, headers=headers, timeout=5)
-                if resp.status_code == 200 and resp.json():
-                    user_id = resp.json()[0]['id']
-                    logger.log(f"Found user for this unit: {user_id}", "INFO")
-                    
-                    # Check if a bot already exists for this user
-                    url = f"{self.sb_url}/rest/v1/bot?user_id=eq.{user_id}&select=id"
-                    resp = requests.get(url, headers=headers, timeout=5)
-                    if resp.status_code == 200 and resp.json():
-                        self.bot_id = resp.json()[0]['id']
-                        logger.log(f"Found existing bot: {self.bot_id}", "SUCCESS")
-                        self._save_bot_id()
-                        return
-        except Exception as e:
-            logger.log(f"GUID chain lookup error: {e}", "DEBUG")
-
-        # 3. No bot found — create one
-        try:
+            logger.log("No existing bot found for this hardware/ID. Creating new entry...", "WARNING")
             payload = {
-                "status": "Starting",
+                "status": "CALIBRATE" if self.needs_calibration() else "Starting",
                 "bet": self.base_bet,
                 "pattern": self.pattern if self.pattern in ['P', 'B', 'PB', 'BP', 'PPPB', 'BBBP'] else 'B',
                 "level": self.max_level,
-                "target_profit": self.target_percentage or 10.0,
+                "target_profit": self.target_percentage if self.target_percentage is not None else 0.0,
                 "command": False,
-                "duration": 60,
+                "duration": 0,
                 "strategy": STRATEGY_BOT_TO_DB.get(self.strategy, "standard"),
                 "balance": 0,
                 "mode": MODE_BOT_TO_DB.get(self.game_mode, "Classic"),
+                "guid": current_hwid,
+                "user_id": self.user_db_id,
+                "franchise_id": self.user_franchise_id,
+                "unit_name": suggested_unit_name
             }
-            # Link to user if we found one
-            if user_id:
-                payload["user_id"] = user_id
                 
             url = f"{self.sb_url}/rest/v1/bot"
             resp = requests.post(
@@ -187,8 +351,10 @@ class Bot:
                 timeout=5
             )
             if resp.status_code in (200, 201) and resp.json():
-                self.bot_id = resp.json()[0]['id']
-                logger.log(f"Created new bot in DB: {self.bot_id}", "SUCCESS")
+                data = resp.json()[0]
+                self.bot_id = data['id']
+                self.bot_name = data.get('unit_name') or "NIG-001"
+                logger.log(f"Created new bot record: {self.bot_id}", "SUCCESS")
                 self._save_bot_id()
             else:
                 logger.log(f"Failed to create bot: {resp.status_code} {resp.text}", "ERROR")
@@ -203,6 +369,11 @@ class Bot:
         self.config['supabase']['hardware_id'] = get_hwid()
         self.save_config()
 
+    def needs_calibration(self):
+        if 'target_a' not in self.config or 'status_region_main' not in self.config or 'chips' not in self.config:
+            return True
+        return False
+
     def push_monitoring_update(self, status=None):
         if not self.sb_url or not self.sb_key or not self.bot_id:
             return
@@ -213,52 +384,72 @@ class Bot:
             "Content-Type": "application/json",
         }
         
-        balance = self.get_current_balance()
-        
-        if balance is not None and balance < 10:
-            effective_status = "Burned"
-        elif status:
-            effective_status = status
-        else:
-            effective_status = "Running" if self.running else "Stopped"
-        
-        # Only push status and balance — don't overwrite settings from the website
-        payload = {
-            "status": effective_status,
-            "balance": balance if balance is not None else 0,
-        }
-
         try:
-            # PATCH the bot row (use minimal to avoid PostgREST 204-no-body issues)
-            url = f"{self.sb_url}/rest/v1/bot?id=eq.{self.bot_id}"
-            response = requests.patch(
-                url,
+            # 1. GET fresh settings first (Flicker Fix)
+            get_url = f"{self.sb_url}/rest/v1/bot?id=eq.{self.bot_id}&select=*,franchise:franchise_id(investor_name,credits)"
+            get_resp = requests.get(get_url, headers=headers, timeout=5)
+            
+            if get_resp.status_code == 200:
+                self.connection_status = "OK"
+                data = get_resp.json()
+                if data:
+                    bot_data = data[0]
+                    # Update Identity & Credits
+                    self.bot_name = bot_data.get('unit_name') or self.bot_name
+                    franchise = bot_data.get('franchise')
+                    if isinstance(franchise, dict):
+                        self.franchise_name = franchise.get('investor_name') or self.franchise_name
+                        self.credits = franchise.get('credits') if franchise.get('credits') is not None else 0
+                    
+                    # Sync Martingale & Command
+                    self.sync_remote_settings(bot_data)
+            
+            # 2. Calculate what to push back
+            balance = self.get_current_balance()
+            
+            # BURNED only triggers if we are RUNNING or if we were already BURNED
+            # If the bot is off, even 0 balance should show "Connected" or "Stopped"
+            is_actually_burned = (balance is not None and (balance < 10 or balance < self.current_bet) and (self.running or self.status == "BURNED"))
+            
+            if is_actually_burned:
+                effective_status = "BURNED"
+                self.status = "BURNED"
+            elif status:
+                effective_status = status
+                self.status = status
+            elif self.needs_calibration():
+                effective_status = "CALIBRATE"
+            else:
+                if self.status == "BURNED":
+                    # Stay BURNED to prevent flickering back to Connected/Running
+                    effective_status = "BURNED"
+                elif not self.remote_command:
+                    effective_status = self.status if self.status in ["Stopped", "Connected", "Inactive"] else "Stopped"
+                else:
+                    # website 'Running' should ONLY show if the bot is actually active
+                    effective_status = "Running" if self.running else "Connected"
+
+            # 3. PATCH status back
+            payload = {
+                "status": effective_status,
+                "balance": balance if balance is not None else 0,
+            }
+            patch_url = f"{self.sb_url}/rest/v1/bot?id=eq.{self.bot_id}"
+            requests.patch(
+                patch_url,
                 headers={**headers, "Prefer": "return=minimal"},
                 json=payload,
                 timeout=5
             )
-            self.last_sync_time = time.time()
-            self._network_failures = 0  # Reset on success
             
-            if response.status_code in [200, 204]:
-                # Always do a separate GET to pull the latest remote settings
-                get_resp = requests.get(
-                    f"{self.sb_url}/rest/v1/bot?id=eq.{self.bot_id}&select=*",
-                    headers=headers,
-                    timeout=5
-                )
-                if get_resp.status_code == 200:
-                    data = get_resp.json()
-                    if data:
-                        self.sync_remote_settings(data[0])
-            else:
-                logger.log(f"Supabase Sync Failed: {response.status_code}", "DEBUG")
+            self.last_sync_time = time.time()
+            self._network_failures = 0
+            
         except Exception as e:
+            self.connection_status = "FAIL"
             self._network_failures += 1
             if self._network_failures <= 2:
-                logger.log(f"Monitoring error (network): {type(e).__name__}", "DEBUG")
-            elif self._network_failures == 3:
-                logger.log("Network unreachable — bot continues running in offline mode.", "WARNING")
+                logger.log(f"Sync error (network): {type(e).__name__}", "DEBUG")
 
     def calculate_banker_density(self, pattern):
         if not pattern: return 0
@@ -351,10 +542,22 @@ class Bot:
             try:
                 new_max_level = int(new_max_level)
                 if new_max_level != self.max_level:
+                    logger.log(f"Max Level changed to {new_max_level}. Resetting martingale.", "INFO")
                     self.max_level = new_max_level
-                    logger.log(f"Synced Max Level: {self.max_level}", "INFO")
+                    self.current_bet = self.base_bet
+                    self.martingale_level = 0
             except ValueError:
                 pass
+
+        # 5. Command Sync (Safe Type Conversion)
+        remote_cmd_val = remote_data.get('command')
+        if remote_cmd_val is not None:
+            if isinstance(remote_cmd_val, bool):
+                self.remote_command = remote_cmd_val
+            else:
+                self.remote_command = str(remote_cmd_val).lower() in ['true', 'start', 'run', '1']
+        else:
+            self.remote_command = False
 
         # 5. Target Profit Sync
         new_profit_pct = remote_data.get('target_profit')
@@ -398,13 +601,23 @@ class Bot:
         else:
             should_run = self.running  # No info — keep current state
 
-        if not should_run and self.running:
-            self.running = False
-            logger.log("Stopping bot (Remote Command)...", "INFO")
+        if not should_run:
+            if self.running:
+                self.running = False
+                self.status = "Stopped" # Explicitly transition to Stopped only on delta
+                logger.log("Stopping bot (Remote Command)...", "INFO")
+            # Clear burned block when website command is toggled OFF
+            self.can_restart = True 
         elif should_run and not self.running:
-            self.start_time = time.time()
-            self.running = True
-            logger.log("Starting bot (Remote Command)...", "INFO")
+            if self.can_restart and self.status != "BURNED":
+                self.start_time = time.time()
+                self.running = True
+                self.status = "Running"
+                logger.log("Starting bot (Remote Command)...", "INFO")
+            else:
+                # Force command back to false if it tries to auto-restart while burned
+                self.status = "BURNED" # Ensure we don't flip to Stopped if burned
+                self.stop_remotely(self.status)
 
         # 10. Final validation
         self.apply_constraints()
@@ -462,9 +675,60 @@ class Bot:
         return None
 
     def wait_for_result_to_clear(self):
-        delay = random.uniform(3.0, 5.0)
-        time.sleep(delay)
+        logger.log("Waiting for result banner to clear...", "DEBUG")
+        start_wait = time.time()
+        
+        # Actively wait for the banner to disappear
+        while self.analyze_state() is not None:
+            time.sleep(0.5)
+            if time.time() - start_wait > 15: # Safety timeout
+                break
+                
+        logger.log("Waiting for betting window to open...", "DEBUG")
+        start_wait = time.time()
+        while True:
+            # Check 1: Button color (Reliable shortcut)
+            if self.is_button_clickable():
+                logger.log("Betting window detected via Button Color!", "INFO")
+                break
+
+            # Check 2: OCR (Fallback)
+            try:
+                image = self.capture_status_region('status_region_main')
+                text = pytesseract.image_to_string(image.convert('L')).strip().lower()
+                keywords = ["place", "bet", "please", "start", "your"]
+                if any(k in text for k in keywords):
+                    logger.log(f"Betting window detected via OCR! ('{text}')", "INFO")
+                    break
+            except:
+                pass
+                
+            if time.time() - start_wait > 30: # Longer timeout for shuffles
+                # If we've waited 30s and button is still not clickable, it's likely a shuffle
+                return False
+                
+            time.sleep(0.5)
+            
+        # Additional buffer to ensure chips are clickable
+        time.sleep(random.uniform(1.0, 2.0))
         return True
+                
+    def is_button_clickable(self):
+        """Checks if the Banker button matches its 'clickable' color baseline."""
+        if 'target_a' not in self.config or 'color' not in self.config['target_a']:
+            return False
+            
+        target = self.config['target_a']
+        try:
+            current_color = pyautogui.pixel(int(target['x']), int(target['y']))
+            baseline = target['color']
+            
+            # Simple Manhattan distance for color matching
+            diff = sum(abs(c - b) for c, b in zip(current_color, baseline))
+            # Status buttons are usually very distinct when clickable vs dimmed
+            return diff < 60 
+        except:
+            return False
 
     def drift_detection(self):
         target = self.config['target_a']
@@ -496,7 +760,7 @@ class Bot:
             min_chip = min([int(k) for k in self.config.get('chips', {'10':0}).keys()])
             if current_bal < min_chip or current_bal < self.current_bet:
                 logger.log(f"BURNED: Balance {current_bal} cannot cover next bet {self.current_bet}.", "ERROR")
-                self.stop_remotely("Burned")
+                self.stop_remotely("BURNED")
                 return
             self.current_bet_start_balance = current_bal
         elif self.last_end_balance is not None:
@@ -513,7 +777,7 @@ class Bot:
             target_char = resolved_side if resolved_side else 'B'
             
         # Humanized pre-bet delay
-        time.sleep(random.uniform(0.8, 1.5))
+        time.sleep(random.uniform(0.3, 0.6))
         
         target_key = 'target_a' if target_char == 'B' else 'target_b'
         target = self.config[target_key]
@@ -524,20 +788,21 @@ class Bot:
             if chip_config:
                 chip_x = chip_config['x'] + random.randint(-3, 3)
                 chip_y = chip_config['y'] + random.randint(-3, 3)
-                move_dur = random.uniform(0.1, 0.3)
+                move_dur = random.uniform(0.05, 0.1)
                 
                 pyautogui.click(chip_x, chip_y, duration=move_dur)
-                time.sleep(random.uniform(0.05, 0.15))
+                time.sleep(random.uniform(0.02, 0.05))
                 
                 target_x = target['x'] + random.randint(-5, 5)
                 target_y = target['y'] + random.randint(-5, 5)
                 
                 for _ in range(count):
-                    pyautogui.click(x=target_x, y=target_y, duration=random.uniform(0.05, 0.1))
-                    time.sleep(random.uniform(0.02, 0.08))
+                    pyautogui.click(x=target_x, y=target_y, duration=random.uniform(0.02, 0.05))
+                    time.sleep(random.uniform(0.01, 0.03))
                 
-                time.sleep(random.uniform(0.05, 0.15))
+                time.sleep(random.uniform(0.02, 0.05))
 
+        self.bet_placed_this_round = True
         self.push_monitoring_update()
 
     def execute_test_bet(self):
@@ -563,32 +828,37 @@ class Bot:
         logger.log(f"Click test complete. Offset applied: ({tx-target['x']}, {ty-target['y']})", "SUCCESS")
 
     def run_cycle(self):
+        if self.needs_calibration():
+            if time.time() - self.last_sync_time > 5:
+                self.push_monitoring_update()
+            time.sleep(1)
+            return
+
         self.push_monitoring_update()
-        self.drift_detection() 
+        self.drift_detection()
         
         current_bal = self.get_current_balance()
 
-        # --- INITIALIZE TARGETS IF NEW SESSION ---
         if self.starting_balance is None and current_bal is not None:
-            # Consistency check: Need 3 identical readings to set starting balance
-            self._balance_check_cache.append(current_bal)
-            if len(self._balance_check_cache) >= 3:
-                if all(b == self._balance_check_cache[0] for b in self._balance_check_cache):
-                    self.starting_balance = current_bal
-                    self.last_end_balance = current_bal
-                    if self.target_percentage:
-                        self.target_balance = self.starting_balance + (self.target_percentage / 100 * self.starting_balance)
-                        logger.log(f"Session Start Balance: {self.starting_balance} | Goal: {self.target_balance}", "INFO")
-                else:
-                    self._balance_check_cache.pop(0) # Keep sliding window
-            return # Wait for stability
+            self.starting_balance = current_bal
+            self.last_end_balance = current_bal
+            if self.target_percentage:
+                self.target_balance = self.starting_balance + (self.target_percentage / 100 * self.starting_balance)
+                logger.log(f"Session Start Balance: {self.starting_balance} | Goal: {self.target_balance}", "INFO")
 
-        # 1. OPTIONAL: Periodic Sync if idle
+        # 1. Listen for outcome banner
         if not self.analyze_state():
-            if time.time() - self.last_sync_time > 5:
-                self.push_monitoring_update()
-            time.sleep(0.2)
-            # We still check limits here so bot can stop while waiting for a hand if time runs out
+            # Simply wait for the next banner to appear
+            time.sleep(0.5)
+            
+            # Pulse for debugging (every 20s)
+            now = time.time()
+            if not hasattr(self, '_last_pulse'): self._last_pulse = 0
+            if now - self._last_pulse > 20:
+                logger.log("Listening for next hand outcome...", "DEBUG")
+                self._last_pulse = now
+
+            # Check limits even while waiting
             elapsed_seconds = time.time() - self.start_time
             if self.target_duration > 0 and elapsed_seconds >= self.target_duration:
                 logger.log(f"SESSION STOP: Time limit reached.", "WARNING")
@@ -610,9 +880,28 @@ class Bot:
         
         outcome = self.analyze_state()
         if outcome:
+            self.last_outcome_time = time.time() # Update timer when banner is found
+            
+            if not self.bet_placed_this_round:
+                logger.log(f"Outcome {outcome} detected but NO BET was placed (e.g. Shuffle). Syncing for next round.", "WARNING")
+                if self.wait_for_result_to_clear():
+                    self.execute_bet(self.pattern[self.pattern_index])
+                else:
+                    # If betting window never opened, we reset last_result so the NEXT hand seen
+                    # is treated as a Baseline Sighting again (Safety).
+                    logger.log("Betting window never opened. Resetting sighting for next hand.", "DEBUG")
+                    self.last_result = None
+                return
+
             start_bal = self.get_current_balance()
             logger.log(f"Outcome: {outcome}", "SUCCESS")
-            self.wait_for_result_to_clear()
+            self.bet_placed_this_round = False # Reset for next round
+            
+            if not self.wait_for_result_to_clear():
+                # If betting window never opened after we bet (rare), we still treat first hand after shuffle as baseline
+                logger.log("Betting window never opened after result. Resetting sighting.", "DEBUG")
+                self.last_result = None
+                return
             
             current_target_name = "BANKER" if current_target_char == 'B' else "PLAYER"
             actual_result = "LOSS"
@@ -672,7 +961,7 @@ class Bot:
 
                 if self.martingale_level > self.max_level:
                     logger.log(f"SESSION STOP: Max Level ({self.max_level}) reached.", "WARNING")
-                    self.stop_remotely("Max Level")
+                    self.stop_remotely("BURNED")
                     return
 
             self.last_result = actual_result
@@ -681,8 +970,20 @@ class Bot:
             end_bal = self.get_current_balance()
             history_start = self.current_bet_start_balance if self.current_bet_start_balance is not None else self.last_end_balance
             
-            if actual_result != "PUSH":
-                self.push_play_history(history_start, end_bal, prev_level, prev_bet)
+            # --- SAFETY NET CHECK ---
+            if actual_result == "WIN" and end_bal is not None and history_start is not None:
+                # Approximate expected balance: start - bet + (bet * 1.95ish for banker or 2 for player)
+                expected = history_start - prev_bet + (prev_bet * (1.95 if current_target_char == 'B' else 2.0))
+
+            elif actual_result == "LOSS" and end_bal is not None and history_start is not None:
+                expected = history_start - prev_bet
+
+
+            # Log result to Supabase (including PUSH/TIE as requested)
+            self.push_play_history(history_start, end_bal, prev_level, prev_bet)
+            
+            # Save state after processing result
+            self.save_state()
                 
             self.last_end_balance = end_bal
             self.current_bet_start_balance = None 
@@ -696,7 +997,8 @@ class Bot:
 
             if self.target_percentage is not None and self._total_hands_played > 0:
                 current_bal = self.get_current_balance()
-                if current_bal is not None and self.target_balance is not None:
+                # Ensure we have a valid balance and target, and that we aren't at $0 (which triggers false wins)
+                if current_bal is not None and self.target_balance is not None and current_bal > 1:
                     if current_bal >= self.target_balance:
                         logger.log(f"GOAL REACHED! Profit target (>{self.target_percentage}%) hit.", "SUCCESS")
                         self.stop_remotely("Goal Reached")
@@ -704,13 +1006,17 @@ class Bot:
 
             # --- PLACING NEXT BET ---
             self.execute_bet(self.pattern[self.pattern_index])
-            time.sleep(random.uniform(1.5, 3.0))
+            self.save_state() # Save state again after placing bet (updates pattern_index/bet)
+            time.sleep(random.uniform(0.5, 1.0))
         else:
             time.sleep(0.1)
 
     def stop_remotely(self, reason_status):
         """Stops the bot and updates the database status so it doesn't auto-restart."""
         self.running = False
+        if reason_status == "BURNED":
+            self.can_restart = False
+        self.clear_state() # Manual/Remote stop clears recovery data
         self.push_monitoring_update(status=reason_status)
 
         # Set command=false in DB so the website toggle flips to off
