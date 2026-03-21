@@ -74,6 +74,7 @@ class Bot:
         self.has_done_lunch = False
         self.has_done_dinner = False
         self.session_start_time = time.time()
+        self.next_humanization_bet_interval = random.randint(180, 330) # Random 3 to 5.5 mins
         
         
         # Strategy Multipliers (Transitions from Level 1 up to Level 10)
@@ -893,13 +894,17 @@ class Bot:
 
         if self.humanization_active:
             # --- HUMANIZATION (RESTING MODE) ---
-            # Forced bet every 4 minutes (240s) to keep session alive
+            # Random keep-alive bet to appear more human
             time_since_last_bet = time.time() - self.last_humanization_bet_time
             
-            if time_since_last_bet > 240:
-                logger.log("Humanization Heartbeat: Placing 4-minute keep-alive bet.", "DEBUG")
+            if time_since_last_bet > self.next_humanization_bet_interval:
+                mins = self.next_humanization_bet_interval // 60
+                secs = self.next_humanization_bet_interval % 60
+                logger.log(f"Humanization Heartbeat: Placing keep-alive bet after {mins}m {secs}s.", "DEBUG")
                 # We place the regular bet according to strategy but just slowly
                 self.last_humanization_bet_time = time.time()
+                # Create a new random interval for the next bet (3 to 5.5 mins)
+                self.next_humanization_bet_interval = random.randint(180, 330)
                 # Continue with the rest of run_cycle logic for ONE HAND
             else:
                 self.humanization_remaining -= 1
