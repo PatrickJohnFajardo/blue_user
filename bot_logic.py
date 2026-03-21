@@ -60,6 +60,20 @@ class Bot:
         self.state_file = find_resource('bot_state.json')
         self.status = "Connected"
         self.can_restart = True
+        self.last_sync_success_time = time.time() # Tracker for internet loss recovery
+        self.network_recovery_active = False
+        self.recovery_remaining = 0 # Countdown for UI
+        
+        # --- HUMANIZATION SETTINGS ---
+        self.humanization_active = False
+        self.humanization_remaining = 0
+        self.last_humanization_bet_time = 0
+        self.daily_runtime_limit = random.randint(7*3600, 12*3600)
+        self.accumulated_daily_runtime = 0
+        self.day_of_last_reset = time.strftime("%d")
+        self.has_done_lunch = False
+        self.has_done_dinner = False
+        self.session_start_time = time.time()
         
         
         # Strategy Multipliers (Transitions from Level 1 up to Level 10)
@@ -425,6 +439,10 @@ class Bot:
                     effective_status = "BURNED"
                 elif not self.remote_command:
                     effective_status = self.status if self.status in ["Stopped", "Connected", "Inactive"] else "Stopped"
+                elif self.humanization_active:
+                    effective_status = "HUMANIZING" # Dashboard should handle brown color
+                elif self.network_recovery_active:
+                    effective_status = f"RESTING ({self.recovery_remaining}s)"
                 else:
                     # website 'Running' should ONLY show if the bot is actually active
                     effective_status = "Running" if self.running else "Connected"
@@ -443,6 +461,7 @@ class Bot:
             )
             
             self.last_sync_time = time.time()
+            self.last_sync_success_time = time.time() # Mark a successful exchange
             self._network_failures = 0
             
         except Exception as e:
@@ -827,7 +846,69 @@ class Bot:
         
         logger.log(f"Click test complete. Offset applied: ({tx-target['x']}, {ty-target['y']})", "SUCCESS")
 
+    def check_humanization(self):
+        """Checks and triggers humanization breaks and daily limits."""
+        now = time.localtime()
+        current_hour = now.tm_hour
+        current_day = time.strftime("%d")
+        
+        # 1. Midnight Reset
+        if current_day != self.day_of_last_reset:
+            self.daily_runtime_limit = random.randint(7*3600, 12*3600)
+            self.accumulated_daily_runtime = 0
+            self.day_of_last_reset = current_day
+            self.has_done_lunch = False
+            self.has_done_dinner = False
+            logger.log(f"Daily Reset: New total limit is {self.daily_runtime_limit // 3600} hours.", "INFO")
+
+        # 2. Trigger Lunch (11 AM)
+        if current_hour == 11 and not self.has_done_lunch:
+            self.humanization_active = True
+            self.humanization_remaining = random.randint(15*60, 60*60)
+            self.has_done_lunch = True
+            logger.log(f"Entering LUNCH Humanization ({self.humanization_remaining // 60} mins)...", "WARNING")
+
+        # 3. Trigger Dinner (6 PM / 18)
+        if current_hour == 18 and not self.has_done_dinner:
+            self.humanization_active = True
+            self.humanization_remaining = random.randint(15*60, 60*60)
+            self.has_done_dinner = True
+            logger.log(f"Entering DINNER Humanization ({self.humanization_remaining // 60} mins)...", "WARNING")
+
+        # 4. Check Daily Limit
+        if self.accumulated_daily_runtime >= self.daily_runtime_limit:
+            logger.log("DAILY LIMIT REACHED: Humanizing shutdown...", "WARNING")
+            self.stop_remotely("Daily Limit")
+            return True
+            
+        return False
+
     def run_cycle(self):
+        # Update running stats
+        if self.running:
+            self.accumulated_daily_runtime += 1 # Rough approximation per cycle
+            
+        if self.check_humanization():
+            return
+
+        if self.humanization_active:
+            # --- HUMANIZATION (RESTING MODE) ---
+            # Forced bet every 4 minutes (240s) to keep session alive
+            time_since_last_bet = time.time() - self.last_humanization_bet_time
+            
+            if time_since_last_bet > 240:
+                logger.log("Humanization Heartbeat: Placing 4-minute keep-alive bet.", "DEBUG")
+                # We place the regular bet according to strategy but just slowly
+                self.last_humanization_bet_time = time.time()
+                # Continue with the rest of run_cycle logic for ONE HAND
+            else:
+                self.humanization_remaining -= 1
+                if self.humanization_remaining <= 0:
+                    self.humanization_active = False
+                    logger.log("Humanization break complete. Resuming normal pace.", "SUCCESS")
+                time.sleep(1)
+                return
+
         if self.needs_calibration():
             if time.time() - self.last_sync_time > 5:
                 self.push_monitoring_update()
@@ -835,6 +916,70 @@ class Bot:
             return
 
         self.push_monitoring_update()
+        
+        # --- NEW: INTERNET LOSS RECOVERY (2-MINUTE REST) ---
+        sync_gap = time.time() - self.last_sync_success_time
+        if sync_gap > 45: # If no successful sync for 45 seconds
+            logger.log(f"RECOVERY: No internet sync for {int(sync_gap)}s. Entering 2-minute REST...", "WARNING")
+            self.network_recovery_active = True
+            self.recovery_remaining = 120
+            
+            # Countdown loop instead of static sleep
+            while self.recovery_remaining > 0:
+                time.sleep(1) 
+                self.recovery_remaining -= 1
+            
+            # Wait for internet to be actually back before proceeding
+            logger.log("Rest over. Waiting for internet restoration...", "INFO")
+            while True:
+                self.push_monitoring_update()
+                if self.connection_status == "OK":
+                    logger.log("Internet restored! Syncing balance for missed results...", "SUCCESS")
+                    break
+                time.sleep(5)
+
+            # Wait for next banner to calculate the "blind" result
+            logger.log("Waiting for next outcome banner to resolve missed hands...", "INFO")
+            while True:
+                outcome = self.analyze_state()
+                if outcome:
+                    current_bal = self.get_current_balance()
+                    if current_bal is not None and self.last_end_balance is not None:
+                        # Compare balance to see what happened during the outage
+                        diff = current_bal - self.last_end_balance
+                        
+                        # Use a small epsilon to ignore tiny fluctuations if any
+                        if abs(diff) < 1:
+                            logger.log(f"Recovery: No balance change detected ({diff}). Assuming no hands played during outage.", "INFO")
+                        elif diff > 0:
+                            logger.log(f"Recovery: Detected GAIN of {diff}. Assuming WIN. Resetting Martingale.", "SUCCESS")
+                            self.martingale_level = 0
+                            self.current_bet = self.base_bet
+                            self.pattern_index = (self.pattern_index + 1) % len(self.pattern)
+                        else:
+                            logger.log(f"Recovery: Detected LOSS of {diff}. Assuming LOSS. Adjusting Martingale.", "ERROR")
+                            # If we bet recently, we know the size. Otherwise use previous bet.
+                            self.martingale_level += 1
+                            multipliers = self.strategies.get(self.strategy, self.strategies["Standard"])
+                            if self.martingale_level < len(multipliers):
+                                self.current_bet = int(self.current_bet * multipliers[self.martingale_level-1])
+                            else:
+                                self.current_bet *= 2
+                            self.pattern_index = (self.pattern_index + 1) % len(self.pattern)
+                        
+                        self.last_end_balance = current_bal
+                        self.bet_placed_this_round = False
+                        self.last_result = "RECOVERED"
+                        self._total_hands_played += 1
+                        self.save_state()
+                        
+                        # Wait for this banner to clear before starting a new round
+                        self.wait_for_result_to_clear()
+                    break
+                time.sleep(1)
+            
+            self.network_recovery_active = False # NOW it is safe to show 'Running' again
+        
         self.drift_detection()
         
         current_bal = self.get_current_balance()

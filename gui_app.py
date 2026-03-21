@@ -48,6 +48,7 @@ class BaccaratGUI:
         # Automatically Start Bot Thread after login
         self.start_bot_thread()
         self.update_info_loop()
+        self.update_ui_fast_loop() # Start the 1s UI clock
 
     def configure_styles(self):
         self.style.configure("TLabel", background=self.bg_dark, foreground="#ecf0f1", font=("Helvetica", 10))
@@ -162,7 +163,14 @@ class BaccaratGUI:
     def update_info_loop(self):
         if self.bot:
             threading.Thread(target=self._perform_bg_sync, daemon=True).start()
+        # Network sync remains every 5 seconds to avoid over-requesting
         self.root.after(5000, self.update_info_loop)
+
+    def update_ui_fast_loop(self):
+        """Higher frequency loop for UI timer and status smoothness (1s)."""
+        if self.bot:
+            self._update_ui_state()
+        self.root.after(1000, self.update_ui_fast_loop)
 
     def _perform_bg_sync(self):
         try:
@@ -186,7 +194,16 @@ class BaccaratGUI:
         cmd_active = self.bot.remote_command
         
         # 1. Critical Errors / Blocking conditions
-        if self.bot.needs_calibration():
+        if self.bot.network_recovery_active:
+            # Show the dynamic countdown timer
+            self.status_label.config(text=f"RECOVERY REST ({self.bot.recovery_remaining}s)", foreground="#f39c12") # Orange
+        elif self.bot.humanization_active:
+            # Show Humanization warning and countdown
+            mins = self.bot.humanization_remaining // 60
+            secs = self.bot.humanization_remaining % 60
+            warning = f"HUMANIZING ({mins}m {secs}s)\nDO NOT TOUCH!"
+            self.status_label.config(text=warning, foreground="#d35400") # Dark Orange / Brownish
+        elif self.bot.needs_calibration():
             self.status_label.config(text="NEEDS CALIBRATION", foreground="#f39c12")
         elif credits_val < 1:
             self.status_label.config(text="NO CREDITS", foreground="#f39c12")
