@@ -3,6 +3,7 @@ from tkinter import ttk, messagebox, scrolledtext
 import threading
 import time
 import os
+import sys
 from bot_logic import Bot
 from utils import logger
 import calibration
@@ -141,7 +142,11 @@ class BaccaratGUI:
         # Control buttons removed as requested - bot runs on login
 
     def get_help_image_path(self, msg):
-        base_dir = "taraccabai"
+        # When running as a frozen .exe, PyInstaller extracts data to sys._MEIPASS
+        if getattr(sys, 'frozen', False):
+            base_dir = os.path.join(sys._MEIPASS, "taraccabai")
+        else:
+            base_dir = "taraccabai"
         if "betting window is open" in msg: return os.path.join(base_dir, "clickable button.png")
         if "hover your mouse over BANKER" in msg: return os.path.join(base_dir, "banker.png")
         if "PLAYER" in msg: return os.path.join(base_dir, "player.png")

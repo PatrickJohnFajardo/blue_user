@@ -422,31 +422,26 @@ class Bot:
             # 2. Calculate what to push back
             balance = self.get_current_balance()
             
-            # BURNED only triggers if we are RUNNING or if we were already BURNED
-            # If the bot is off, even 0 balance should show "Connected" or "Stopped"
-            is_actually_burned = (balance is not None and (balance < 10 or balance < self.current_bet) and (self.running or self.status == "BURNED"))
-            
-            if is_actually_burned:
+            # --- STATUS CALCULATION ---
+            # We only show BURNED if the bot itself has set that status.
+            # We don't 'predict' it here anymore to avoid desync with the main loop.
+            if self.status == "BURNED":
                 effective_status = "BURNED"
-                self.status = "BURNED"
             elif status:
                 effective_status = status
-                self.status = status
             elif self.needs_calibration():
                 effective_status = "CALIBRATE"
+            elif not self.remote_command:
+                # If command is OFF, status is Stopped
+                effective_status = "Stopped"
+            elif self.humanization_active:
+                effective_status = "HUMANIZING"
+            elif self.network_recovery_active:
+                effective_status = f"RESTING ({self.recovery_remaining}s)"
             else:
-                if self.status == "BURNED":
-                    # Stay BURNED to prevent flickering back to Connected/Running
-                    effective_status = "BURNED"
-                elif not self.remote_command:
-                    effective_status = self.status if self.status in ["Stopped", "Connected", "Inactive"] else "Stopped"
-                elif self.humanization_active:
-                    effective_status = "HUMANIZING" # Dashboard should handle brown color
-                elif self.network_recovery_active:
-                    effective_status = f"RESTING ({self.recovery_remaining}s)"
-                else:
-                    # website 'Running' should ONLY show if the bot is actually active
-                    effective_status = "Running" if self.running else "Connected"
+                # RUNNING status only if threads are active and command is ON
+                effective_status = "Running" if self.running else "Connected"
+
 
             # 3. PATCH status back
             payload = {
@@ -1057,7 +1052,21 @@ class Bot:
             actual_result = "LOSS"
             if outcome == "TIE": actual_result = "PUSH"
             elif outcome == current_target_name or outcome == "GENERIC_WIN": actual_result = "WIN"
+            
+            # --- BALANCE CROSS-CHECK (Catches skipped hands & OCR misreads) ---
+            end_bal = self.get_current_balance()
+            if end_bal is not None and self.last_end_balance is not None and actual_result != "PUSH":
+                balance_diff = end_bal - self.last_end_balance
                 
+                if actual_result == "WIN" and balance_diff < -1:
+                    # Banner said WIN, but balance went DOWN → likely a skipped hand loss
+                    logger.log(f"CROSS-CHECK: Banner={actual_result} but Balance dropped by {balance_diff}. Overriding → LOSS.", "WARNING")
+                    actual_result = "LOSS"
+                elif actual_result == "LOSS" and balance_diff > 1:
+                    # Banner said LOSS, but balance went UP → likely a skipped hand win
+                    logger.log(f"CROSS-CHECK: Banner={actual_result} but Balance gained {balance_diff}. Overriding → WIN.", "WARNING")
+                    actual_result = "WIN"
+
             logger.log(f"Result determined: {actual_result}", "INFO")
 
             prev_bet = self.current_bet
@@ -1082,7 +1091,9 @@ class Bot:
                 self.session_lost_amount = 0 # Reset recovery tracking
                 self.pattern_index = (self.pattern_index + 1) % len(self.pattern)
             elif actual_result == "PUSH":
-                logger.log("Tie detected: Keeping same pattern index for next bet.", "INFO")
+                logger.log(f"Tie detected: Preserving Bet {self.current_bet} (Level {self.martingale_level})", "INFO")
+                # Do not modify current_bet, martingale_level, or pattern_index
+
             elif actual_result == "LOSS":
                 if self.game_mode == "Always 8 Baccarat":
                     self.session_lost_amount += prev_bet
@@ -1117,16 +1128,8 @@ class Bot:
             self.last_result = actual_result
             self._total_hands_played += 1
             
-            end_bal = self.get_current_balance()
             history_start = self.current_bet_start_balance if self.current_bet_start_balance is not None else self.last_end_balance
-            
-            # --- SAFETY NET CHECK ---
-            if actual_result == "WIN" and end_bal is not None and history_start is not None:
-                # Approximate expected balance: start - bet + (bet * 1.95ish for banker or 2 for player)
-                expected = history_start - prev_bet + (prev_bet * (1.95 if current_target_char == 'B' else 2.0))
 
-            elif actual_result == "LOSS" and end_bal is not None and history_start is not None:
-                expected = history_start - prev_bet
 
 
             # Log result to Supabase (including PUSH/TIE as requested)
