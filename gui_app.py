@@ -213,7 +213,8 @@ class BaccaratGUI:
         elif credits_val < 1:
             self.status_label.config(text="NO CREDITS", foreground="#f39c12")
         elif self.bot.status == "BURNED":
-            self.status_label.config(text="NO BALANCE", foreground="#c0392b") # Red
+            self.status_label.config(text="NO BALANCE (PLEASE RESTART APP)", foreground="#c0392b") # Red
+
             
         # 2. Operational States
         elif cmd_active and self.is_running and self.bot.running:
@@ -255,28 +256,50 @@ class BaccaratGUI:
             self.pop_hint = tk.Label(self.calib_popup, text="Press SPACE/NEXT when ready.", font=("Helvetica", 10, "italic"), fg="#95a5a6", bg="#2c3e50")
             self.pop_hint.pack(pady=5)
             
-            # Help Image Label
             self.pop_image_lbl = tk.Label(self.calib_popup, bg="#2c3e50")
             self.pop_image_lbl.pack(pady=5)
             
+            # --- ACTION BUTTONS ---
+            btn_frame = tk.Frame(self.calib_popup, bg="#2c3e50")
+            btn_frame.pack(side=tk.BOTTOM, pady=10)
+            
+            self.next_btn_pop = tk.Button(btn_frame, text="NEXT STEP", command=self.trigger_next_step, bg="#27ae60", fg="white", font=("Helvetica", 10, "bold"), width=15)
+            self.next_btn_pop.pack(side=tk.LEFT, padx=5)
+            
+            self.cancel_btn = tk.Button(btn_frame, text="EXIT / CANCEL", command=self.cancel_calibration, bg="#c0392b", fg="white", font=("Helvetica", 10, "bold"), width=15)
+            self.cancel_btn.pack(side=tk.LEFT, padx=5)
+
             self.calib_frame.pack(pady=10)
             self.log_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
             self.next_btn.config(state=tk.NORMAL)
             self.calib_event.clear()
+            self.calibration_cancelled = False
             threading.Thread(target=self.run_calibration, daemon=True).start()
+
 
     def trigger_next_step(self):
         if self.is_calibrating:
             self.calib_event.set()
 
+    def cancel_calibration(self):
+        if self.is_calibrating:
+            if messagebox.askyesno("Cancel", "Are you sure you want to exit calibration?"):
+                self.calibration_cancelled = True
+                self.calib_event.set() # Unblock waiter
+
     def run_calibration(self):
         def gui_waiter(msg):
+            # Check if cancelled before waiting
+            if self.calibration_cancelled:
+                raise ValueError("CANCELLED")
+
             # Update labels with the full instruction
             self.root.after(0, lambda: self.status_label.config(text=msg.upper(), foreground="#f1c40f"))
             
             # Update the Floating Popup
             if self.calib_popup and self.calib_popup.winfo_exists():
                 self.root.after(0, lambda: self.pop_instr.config(text=msg))
+
                 # Update Image
                 img_path = self.get_help_image_path(msg)
                 if img_path and os.path.exists(img_path):
@@ -298,7 +321,12 @@ class BaccaratGUI:
             
             self.calib_event.clear()
             self.calib_event.wait()
+            
+            if self.calibration_cancelled:
+                raise ValueError("CANCELLED")
+
             self.calib_event.clear()
+
 
         try:
             game_mode = self.bot.game_mode if self.bot else "Classic Baccarat"
@@ -318,8 +346,17 @@ class BaccaratGUI:
                 self.bot.sb_config = self.bot.config.get('supabase', {})
                 
             self.root.after(0, lambda: messagebox.showinfo("Success", "Calibration complete! No need to restart."))
+        except ValueError as ve:
+            if str(ve) == "CANCELLED":
+                logger.log("Calibration exited by user.", "WARNING")
+                self.root.after(0, lambda: self.status_label.config(text="CALIBRATION CANCELLED", foreground="#e67e22"))
+                if self.calib_popup and self.calib_popup.winfo_exists():
+                    self.root.after(0, self.calib_popup.destroy)
+            else:
+                self.root.after(0, lambda: messagebox.showerror("Error", f"Calibration failed: {ve}"))
         except Exception as e:
             self.root.after(0, lambda: messagebox.showerror("Error", f"Calibration failed: {e}"))
+
         finally:
             self.is_calibrating = False
             self.root.after(0, lambda: self.next_btn.config(state=tk.DISABLED))

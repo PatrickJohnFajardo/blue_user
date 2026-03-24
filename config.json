@@ -1,88 +1,88 @@
 {
-    "target_a": {
-        "x": 1124,
-        "y": 1006,
-        "color": [
-            157,
-            4,
-            20
-        ]
+  "target_a": {
+    "x": 1124,
+    "y": 1006,
+    "color": [
+      157,
+      4,
+      20
+    ]
+  },
+  "target_b": {
+    "x": 777,
+    "y": 1004,
+    "color": [
+      12,
+      55,
+      133
+    ]
+  },
+  "target_c": {
+    "x": 941,
+    "y": 1004,
+    "color": [
+      12,
+      111,
+      30
+    ]
+  },
+  "status_region_main": {
+    "x": 846,
+    "y": 415,
+    "width": 244,
+    "height": 55
+  },
+  "status_region_tie": {
+    "x": 816,
+    "y": 351,
+    "width": 272,
+    "height": 62
+  },
+  "status_region_balance": {
+    "x": 69,
+    "y": 1146,
+    "width": 91,
+    "height": 42
+  },
+  "chips": {
+    "10": {
+      "x": 754,
+      "y": 1173
     },
-    "target_b": {
-        "x": 777,
-        "y": 1004,
-        "color": [
-            12,
-            55,
-            133
-        ]
+    "50": {
+      "x": 807,
+      "y": 1172
     },
-    "target_c": {
-        "x": 941,
-        "y": 1004,
-        "color": [
-            12,
-            111,
-            30
-        ]
+    "100": {
+      "x": 880,
+      "y": 1168
     },
-    "status_region_main": {
-        "x": 846,
-        "y": 415,
-        "width": 244,
-        "height": 55
+    "250": {
+      "x": 934,
+      "y": 1169
     },
-    "status_region_tie": {
-        "x": 816,
-        "y": 351,
-        "width": 272,
-        "height": 62
+    "500": {
+      "x": 984,
+      "y": 1171
     },
-    "status_region_balance": {
-        "x": 69,
-        "y": 1146,
-        "width": 91,
-        "height": 42
+    "1000": {
+      "x": 1053,
+      "y": 1173
     },
-    "chips": {
-        "10": {
-            "x": 754,
-            "y": 1173
-        },
-        "50": {
-            "x": 807,
-            "y": 1172
-        },
-        "100": {
-            "x": 880,
-            "y": 1168
-        },
-        "250": {
-            "x": 934,
-            "y": 1169
-        },
-        "500": {
-            "x": 984,
-            "y": 1171
-        },
-        "1000": {
-            "x": 1053,
-            "y": 1173
-        },
-        "5000": {
-            "x": 1104,
-            "y": 1176
-        },
-        "10000": {
-            "x": 1159,
-            "y": 1168
-        }
+    "5000": {
+      "x": 1104,
+      "y": 1176
     },
-    "supabase": {
-        "url": "https://pfoxlnlqjeibqxmgsohn.supabase.co",
-        "key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBmb3hsbmxxamVpYnF4bWdzb2huIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDM2OTIyNiwiZXhwIjoyMDg1OTQ1MjI2fQ.zNgr0_KuGNPtXDc5VMyvnASFuy3w-aafnJHBVDM-kKU",
-        "bot_id": "96D7709D",
-        "hardware_id": "4aa220fa-3061-4f7f-89cc-8ad4fd34e41a",
-        "remembered_auth_id": "c4ff72de-f63e-4a70-a01c-806b564a79bc"
+    "10000": {
+      "x": 1159,
+      "y": 1168
     }
+  },
+  "supabase": {
+    "url": "https://pfoxlnlqjeibqxmgsohn.supabase.co",
+    "key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBmb3hsbmxxamVpYnF4bWdzb2huIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDM2OTIyNiwiZXhwIjoyMDg1OTQ1MjI2fQ.zNgr0_KuGNPtXDc5VMyvnASFuy3w-aafnJHBVDM-kKU",
+    "bot_id": "96D7709D",
+    "hardware_id": "4aa220fa-3061-4f7f-89cc-8ad4fd34e41a",
+    "remembered_auth_id": "c4ff72de-f63e-4a70-a01c-806b564a79bc"
+  }
 }

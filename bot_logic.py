@@ -1086,10 +1086,43 @@ class Bot:
 
             # --- STANDARD LOGIC ---
             if actual_result == "WIN":
-                self.current_bet = self.base_bet
-                self.martingale_level = 0
-                self.session_lost_amount = 0 # Reset recovery tracking
-                self.pattern_index = (self.pattern_index + 1) % len(self.pattern)
+                is_half_win = False
+                # Super 6 Detection: Banker win on 6 pays only 50%
+                if end_bal is not None and self.last_end_balance is not None and prev_bet > 0:
+                    profit = end_bal - self.last_end_balance
+                    # Using a threshold around 50% (e.g. 30% to 70% of stake)
+                    if 0.3 <= (profit / prev_bet) <= 0.7:
+                        is_half_win = True
+                
+                if is_half_win and self.martingale_level > 0:
+                    logger.log(f"SUPER 6 DETECTED: Profit {profit} is only ~50% of bet {prev_bet}. Dropping 1 Martingale level.", "WARNING")
+                    self.martingale_level -= 1
+                    
+                    # Recalculate bet size for the NEW (lowered) level
+                    if self.martingale_level == 0:
+                        self.current_bet = self.base_bet
+                    else:
+                        # Re-derive the bet for this specific level
+                        temp_bet = self.base_bet
+                        multipliers = self.strategies.get(self.strategy, self.strategies["Standard"])
+                        for i in range(self.martingale_level):
+                            if i < len(multipliers):
+                                temp_bet = int(temp_bet * multipliers[i])
+                            else:
+                                temp_bet *= 2
+                        self.current_bet = temp_bet
+                        
+                    logger.log(f"Recovery adjustment: Returning to Level {self.martingale_level} (Bet: {self.current_bet})", "INFO")
+                    # In a half-win, we keep the pattern index moving or stay? 
+                    # Usually move forward since the round is resolved.
+                    self.pattern_index = (self.pattern_index + 1) % len(self.pattern)
+                else:
+                    # Regular Full Win
+                    self.current_bet = self.base_bet
+                    self.martingale_level = 0
+                    self.session_lost_amount = 0 # Reset recovery tracking
+                    self.pattern_index = (self.pattern_index + 1) % len(self.pattern)
+
             elif actual_result == "PUSH":
                 logger.log(f"Tie detected: Preserving Bet {self.current_bet} (Level {self.martingale_level})", "INFO")
                 # Do not modify current_bet, martingale_level, or pattern_index
