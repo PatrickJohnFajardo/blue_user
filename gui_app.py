@@ -380,9 +380,7 @@ class BaccaratGUI:
         if not self.bot:
             self.initialize_bot_instance()
         if self.bot:
-            self.bot.session_lost_amount = 0
-            self.bot.pattern_index = 0
-            self.bot.martingale_level = 0
+            # Persistent Memory: We no longer wipe stats on every click!
             self.bot.last_result = None
             self.bot.first_run = True
             self.bot.starting_balance = None
@@ -390,6 +388,7 @@ class BaccaratGUI:
             self.bot.start_time = time.time()
             self.bot.can_restart = True # Manual start clears burned block
             logger.log(f"Auto-Start initialized. Syncing with remote command...", "INFO")
+
         
         self.is_running = True
         self.bot_thread = threading.Thread(target=self.run_bot, daemon=True)

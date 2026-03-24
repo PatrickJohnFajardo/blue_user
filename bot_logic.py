@@ -109,8 +109,12 @@ class Bot:
         # Handle Bot Identity (find or create bot row in DB)
         self.handle_bot_identity()
         
+        # PERSISTENCE: Re-load last session level/lost amount if it exists
+        self.load_state()
+
         if self.sb_url and self.sb_key and self.bot_id:
             self.push_monitoring_update(status="Starting")
+
             
     def load_config(self):
         if not os.path.exists(self.config_file):
@@ -557,12 +561,17 @@ class Bot:
             try:
                 new_max_level = int(new_max_level)
                 if new_max_level != self.max_level:
-                    logger.log(f"Max Level changed to {new_max_level}. Resetting martingale.", "INFO")
-                    self.max_level = new_max_level
-                    self.current_bet = self.base_bet
-                    self.martingale_level = 0
+                    if self.martingale_level == 0:
+                        logger.log(f"Max Level changed to {new_max_level}. Syncing.", "INFO")
+                        self.max_level = new_max_level
+                    else:
+                        # Queue the update for after the current recovery
+                        logger.log(f"Max Level changed to {new_max_level}, but we are at Level {self.martingale_level}. Will update after next Win.", "INFO")
+                        # For now, we update it but don't reset the current bet/level
+                        self.max_level = new_max_level
             except ValueError:
                 pass
+
 
         # 5. Command Sync (Safe Type Conversion)
         remote_cmd_val = remote_data.get('command')
@@ -1068,16 +1077,17 @@ class Bot:
                     actual_result = "WIN"
 
             logger.log(f"Result determined: {actual_result}", "INFO")
-
             prev_bet = self.current_bet
             prev_level = self.martingale_level
-
             # --- SESSION START HANDLING ---
             if self.last_result is None:
                 logger.log("First hand detected (Baseline). Ignoring result for stats/betting.", "WARNING")
-                self.current_bet = self.base_bet
-                self.martingale_level = 0
-                self.pattern_index = 0
+                if self.martingale_level == 0:
+                    # Only reset to base if we weren't in a persistent recovery
+                    self.current_bet = self.base_bet
+                else:
+                    logger.log(f"Resuming Persistent Martingale Level {self.martingale_level} (Bet: {self.current_bet})", "SUCCESS")
+
                 self.last_result = "SIGHTED"
                 self.last_end_balance = self.get_current_balance()
                 self._total_hands_played = 0
