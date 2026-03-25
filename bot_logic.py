@@ -34,14 +34,16 @@ class Bot:
         self.config = self.load_config()
         self.on_settings_sync = on_settings_sync
         self.running = False
+        self.strategy = strategy
         self.base_bet = base_bet
-        self.current_bet = self.base_bet
+        self.current_bet = self.base_bet * 3 if self.strategy == "Burst" else self.base_bet
+
         self.last_result = None 
         self.target_percentage = target_percentage
         self.starting_balance = None
         self.target_balance = None
         self.max_level = max_level
-        self.strategy = strategy
+
         self.first_run = True 
         self.start_time = time.time()
         self.last_sync_time = 0
@@ -82,8 +84,9 @@ class Bot:
             "Standard": [2] * 20,
             "Tank":    [2, 2, 2, 2, 2, 3, 2, 3, 2],
             "Sweeper": [3, 3, 3, 2, 2, 2, 2, 2, 2, 2],
-            "Burst":   [1.6667, 1.8, 1.926]
+            "Burst":   [1.3334, 2, 2, 2, 2, 2, 2, 2, 2, 2]
         }
+
         self.strategy = strategy
         self.banker_density = self.calculate_banker_density(pattern_string)
         self.target_duration = 0 # Target seconds from DB
@@ -554,6 +557,9 @@ class Bot:
             new_strategy = STRATEGY_DB_TO_BOT.get(new_strategy_db, new_strategy_db)
             if new_strategy in self.strategies and new_strategy != self.strategy:
                 self.strategy = new_strategy
+                if self.martingale_level == 0:
+                    self.current_bet = self.base_bet * 3 if self.strategy == "Burst" else self.base_bet
+
 
         # 4. Max Level Sync
         new_max_level = remote_data.get('level')
@@ -1128,8 +1134,9 @@ class Bot:
                     self.pattern_index = (self.pattern_index + 1) % len(self.pattern)
                 else:
                     # Regular Full Win
-                    self.current_bet = self.base_bet
+                    self.current_bet = self.base_bet * 3 if self.strategy == "Burst" else self.base_bet
                     self.martingale_level = 0
+
                     self.session_lost_amount = 0 # Reset recovery tracking
                     self.pattern_index = (self.pattern_index + 1) % len(self.pattern)
 
