@@ -25,7 +25,7 @@ class CGBot:
         self.game_mode = "Color Game"
         
         self.colors = ["yellow", "white", "pink", "blue", "red", "green"]
-        self.fib_sequence = [1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144]
+        self.fib_sequence = [1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144, 233, 377, 610, 987, 1597, 2584, 4181, 6765, 10946, 17711, 28657, 46368, 75025, 121393, 196418, 317811, 514229, 832040]
         
         self.base_bet = 1
         self.strategy = "martingale" # 'martingale' or 'fibonacci'
@@ -408,6 +408,12 @@ class CGBot:
         if available_balance < bet_amount:
             logger.log(f"BURNED: Balance {available_balance} cannot cover next bet {bet_amount}.", "ERROR")
             self.stop_remotely("BURNED")
+            return
+            
+        # --- LEVEL LIMIT CHECK ---
+        if self.current_level > self.max_level:
+            logger.log(f"LIMIT REACHED: Current Level {self.current_level} exceeds Max Level {self.max_level}.", "WARNING")
+            self.stop_remotely("Limit reached")
             return
             
         self.last_bet_amount = bet_amount
