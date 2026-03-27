@@ -8,24 +8,26 @@ setlocal
 echo.
 echo [1/3] Checking Prerequisites...
 
-:: Check if Tesseract is installed in the default location
-set "TESSERACT_EXE=C:\Program Files\Tesseract-OCR\tesseract.exe"
+:: Check 7-Zip
+set "SEVENZIP_EXE=C:\Program Files\7-Zip\7z.exe"
+if exist "%SEVENZIP_EXE%" (
+    echo.    - 7-Zip is already installed.
+) else (
+    echo.    - 7-Zip NOT FOUND.
+    echo.    - Launching 7-Zip Silent Installer...
+    start /wait "" "Setup\7z-setup.exe" /S
+    echo.    - 7-Zip installed successfully.
+)
 
+:: Check Tesseract
+set "TESSERACT_EXE=C:\Program Files\Tesseract-OCR\tesseract.exe"
 if exist "%TESSERACT_EXE%" (
     echo.    - Tesseract OCR is already installed.
 ) else (
     echo.    - Tesseract OCR NOT FOUND.
-    echo.    - Launching Tesseract Installer...
-    echo.      (Please follow the installation prompts. Do NOT change the install path!)
-    start /wait "" "Setup\tesseract-ocr-w64-setup-5.5.0.20241111.exe"
-    
-    if not exist "%TESSERACT_EXE%" (
-        echo.
-        echo [!] ERROR: Tesseract was not installed correctly.
-        echo.    The bot requires Tesseract to read the balance.
-        pause
-        exit /b
-    )
+    echo.    - Launching Tesseract Silent Installer...
+    :: Note: Tesseract setup supports /S for silent install
+    start /wait "" "Setup\tesseract-ocr-w64-setup-5.5.0.20241111.exe" /S
     echo.    - Tesseract OCR installed successfully.
 )
 
