@@ -97,7 +97,7 @@ def main(wait_func=input, min_chip=10):
     # 3. Chip Calibration
     logger.log("--- Calibrating Chips ---", "INFO")
     chips = config.get('chips', {})
-    all_possible_chips = [10, 50, 100, 250, 500, 1000, 5000, 10000]
+    all_possible_chips = [10, 20, 50, 100, 250, 500, 1000, 5000, 10000]
     chip_values = [v for v in all_possible_chips if v >= min_chip]
     
     for val in chip_values:

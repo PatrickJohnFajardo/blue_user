@@ -16,7 +16,7 @@ class BaccaratGUI:
         self.user_auth_id = user_auth_id
         self.on_logout = on_logout
         self.root.title("BLUE")
-        self.root.geometry("325x150") # Reduced height for compact view
+        self.root.geometry("325x165") # Reduced height for compact view
         self.root.configure(bg="#1a1a1a")
         self.root.resizable(False, False)
         
@@ -77,6 +77,13 @@ class BaccaratGUI:
         self.bot_menu = tk.Menu(self.menu_btn, tearoff=0, bg=self.bg_dark, fg="white", activebackground=self.text_blue)
         self.menu_btn.config(menu=self.bot_menu)
         
+        self.variant_var = tk.StringVar(value="BC") # BC or CG
+        
+        self.variant_menu = tk.Menu(self.bot_menu, tearoff=0, bg=self.bg_dark, fg="white", activebackground=self.text_blue)
+        self.variant_menu.add_radiobutton(label="BC", variable=self.variant_var, value="BC", command=self.on_variant_change)
+        self.variant_menu.add_radiobutton(label="CG", variable=self.variant_var, value="CG", command=self.on_variant_change)
+        
+        self.bot_menu.add_cascade(label="Game Variant", menu=self.variant_menu)
         self.bot_menu.add_command(label="Run Calibration", command=self.start_calibration)
         self.bot_menu.add_command(label="Logs", command=self.toggle_logs)
         self.bot_menu.add_separator()
@@ -99,6 +106,9 @@ class BaccaratGUI:
         # Header Row
         header_frame = tk.Frame(self.main_frame, bg=self.bg_dark)
         header_frame.pack(fill=tk.X)
+        
+        self.mode_title_label = ttk.Label(header_frame, text="BC", font=("Helvetica", 10, "bold"), background=self.bg_dark, foreground="#95a5a6")
+        self.mode_title_label.pack(side=tk.TOP, anchor="w")
         
         self.unit_name_label = ttk.Label(header_frame, text=self.bot.bot_name if self.bot else "Unit", style="Header.TLabel")
         self.unit_name_label.pack(side=tk.LEFT)
@@ -142,27 +152,47 @@ class BaccaratGUI:
         # Control buttons removed as requested - bot runs on login
 
     def get_help_image_path(self, msg):
+        is_cg = hasattr(self, 'variant_var') and self.variant_var.get() == "CG"
+        
         # When running as a frozen .exe, PyInstaller extracts data to sys._MEIPASS
         if getattr(sys, 'frozen', False):
-            base_dir = os.path.join(sys._MEIPASS, "taraccabai")
+            base_dir = os.path.join(sys._MEIPASS, "CG" if is_cg else "taraccabai")
         else:
-            base_dir = "taraccabai"
-        if "betting window is open" in msg: return os.path.join(base_dir, "clickable button.png")
-        if "hover your mouse over BANKER" in msg: return os.path.join(base_dir, "banker.png")
-        if "PLAYER" in msg: return os.path.join(base_dir, "player.png")
-        if "TIE and press" in msg or "over TIE " in msg: return os.path.join(base_dir, "tie.png")
-        if "MAIN STATUS REGION" in msg:
-            return os.path.join(base_dir, "status region 1.png" if "STEP 1" in msg else "status region 2.png")
-        if "TIE STATUS REGION" in msg:
-            return os.path.join(base_dir, "tie status region 1.png" if "STEP 1" in msg else "tie status region 2.png")
-        if "BALANCE" in msg:
-            return os.path.join(base_dir, "balance status 1.png" if "STEP 1" in msg else "balance status 2.png")
-        if "CHIP " in msg:
-            try:
-                # Extracts the value from e.g. "CHIP 10 and press Space"
-                val = msg.split("CHIP ")[1].split(" ")[0]
-                return os.path.join(base_dir, f"chip {val}.png")
-            except: pass
+            base_dir = "CG" if is_cg else "taraccabai"
+            
+        if is_cg:
+            # Color Game Specific
+            if "YELLOW" in msg: return os.path.join(base_dir, "yellow.png")
+            if "WHITE" in msg: return os.path.join(base_dir, "white.png")
+            if "PINK" in msg: return os.path.join(base_dir, "pink.png")
+            if "BLUE" in msg: return os.path.join(base_dir, "blue.png")
+            if "RED" in msg: return os.path.join(base_dir, "red.png")
+            if "GREEN" in msg: return os.path.join(base_dir, "green.png")
+            if "BALANCE" in msg:
+                return os.path.join(base_dir, "topbalance.png" if "STEP 1" in msg else "bottombalance.png")
+            if "CHIP " in msg:
+                try:
+                    val = msg.split("CHIP ")[1].split(" ")[0]
+                    return os.path.join(base_dir, f"{val}.png") # Files are named 1.png, 20.png etc in CG folder
+                except: pass
+        else:
+            # Baccarat Specific
+            if "betting window is open" in msg: return os.path.join(base_dir, "clickable button.png")
+            if "hover your mouse over BANKER" in msg: return os.path.join(base_dir, "banker.png")
+            if "PLAYER" in msg: return os.path.join(base_dir, "player.png")
+            if "TIE and press" in msg or "over TIE " in msg: return os.path.join(base_dir, "tie.png")
+            if "MAIN STATUS REGION" in msg:
+                return os.path.join(base_dir, "status region 1.png" if "STEP 1" in msg else "status region 2.png")
+            if "TIE STATUS REGION" in msg:
+                return os.path.join(base_dir, "tie status region 1.png" if "STEP 1" in msg else "tie status region 2.png")
+            if "BALANCE" in msg:
+                return os.path.join(base_dir, "balance status 1.png" if "STEP 1" in msg else "balance status 2.png")
+            if "CHIP " in msg:
+                try:
+                    # Extracts the value from e.g. "CHIP 10 and press Space"
+                    val = msg.split("CHIP ")[1].split(" ")[0]
+                    return os.path.join(base_dir, f"chip {val}.png")
+                except: pass
         return None
 
     def update_info_loop(self):
@@ -194,6 +224,10 @@ class BaccaratGUI:
             display_name = "NIG-001"
             
         self.unit_name_label.config(text=display_name)
+        
+        mode_text = "CG" if hasattr(self, 'variant_var') and self.variant_var.get() == "CG" else "BC"
+        if hasattr(self, 'mode_title_label'):
+            self.mode_title_label.config(text=mode_text)
         
         credits_val = self.bot.credits if self.bot.credits is not None else 0
         cmd_active = self.bot.remote_command
@@ -329,9 +363,13 @@ class BaccaratGUI:
 
 
         try:
-            game_mode = self.bot.game_mode if self.bot else "Classic Baccarat"
-            min_chip = 50 if game_mode == "Always 8 Baccarat" else 10
-            calibration.main(wait_func=gui_waiter, min_chip=min_chip)
+            if hasattr(self, 'variant_var') and self.variant_var.get() == "CG":
+                import calibration_cg
+                calibration_cg.main(wait_func=gui_waiter)
+            else:
+                game_mode = self.bot.game_mode if self.bot else "Classic Baccarat"
+                min_chip = 50 if game_mode == "Always 8 Baccarat" else 10
+                calibration.main(wait_func=gui_waiter, min_chip=min_chip)
             
             # Restore status label after success
             self.root.after(0, lambda: self.status_label.config(text="CALIBRATION SUCCESS", foreground="#27ae60"))
@@ -362,14 +400,32 @@ class BaccaratGUI:
             self.root.after(0, lambda: self.next_btn.config(state=tk.DISABLED))
             self.root.after(0, lambda: self.calib_frame.pack_forget())
             self.root.after(0, lambda: self.log_frame.pack_forget())
-            self.root.after(0, lambda: self.root.geometry("325x150")) # Shrink window back
+            self.root.after(0, lambda: self.root.geometry("325x165")) # Shrink window back
 
     def initialize_bot_instance(self):
         try:
-            self.bot = Bot(on_settings_sync=self.update_remote_settings_display, user_auth_id=self.user_auth_id)
+            is_cg = hasattr(self, 'variant_var') and self.variant_var.get() == "CG"
+            if is_cg:
+                try:
+                    from bot_logic_cg import CGBot
+                except ImportError:
+                    logger.log("CG Bot not found, falling back to BC.", "WARNING")
+                    is_cg = False
+
+            if is_cg:
+                from bot_logic_cg import CGBot
+                self.bot = CGBot(on_settings_sync=self.update_remote_settings_display, user_auth_id=self.user_auth_id)
+            else:
+                self.bot = Bot(on_settings_sync=self.update_remote_settings_display, user_auth_id=self.user_auth_id)
         except Exception as e:
             logger.log(f"Startup Error: {e}", "DEBUG")
             self.bot = None
+
+    def on_variant_change(self):
+        logger.log(f"Switched game variant to {self.variant_var.get()}", "INFO")
+        self.stop_bot()
+        self.initialize_bot_instance()
+        self.start_bot_thread()
 
     def update_remote_settings_display(self, remote_data):
         # Engine handles sync; UI can use this for specific notifications if needed
@@ -391,13 +447,13 @@ class BaccaratGUI:
 
         
         self.is_running = True
-        self.bot_thread = threading.Thread(target=self.run_bot, daemon=True)
+        self.bot_thread = threading.Thread(target=self.run_bot, args=(self.bot,), daemon=True)
         self.bot_thread.start()
 
-    def run_bot(self):
+    def run_bot(self, current_bot):
         try:
-            self.bot.running = True
-            while self.is_running:
+            current_bot.running = True
+            while self.is_running and self.bot == current_bot:
                 if self.bot.credits < 1:
                     self.bot.push_monitoring_update(status="No Credits")
                     time.sleep(5)
@@ -463,7 +519,7 @@ class BaccaratGUI:
         """Show or hide the log output and resize the window."""
         if self.log_frame.winfo_ismapped():
             self.log_frame.pack_forget()
-            self.root.geometry("325x150") # Snap back to compact height
+            self.root.geometry("325x165") # Snap back to compact height
         else:
             self.log_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
             self.root.geometry("325x450") # Expand to show logs
